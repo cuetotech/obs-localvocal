@@ -1,6 +1,6 @@
 #include "google-cloud.h"
 #include "curl-helper.h"
-#include <QString>
+#include "html-entities.h"
 #include <nlohmann/json.hpp>
 #include <sstream>
 
@@ -27,17 +27,16 @@ std::string GoogleTranslator::translate(const std::string &text, const std::stri
 	std::string response;
 
 	try {
-		// Construct URL with parameters
+		// Captions are plain text, not an HTML document.
 		std::stringstream url;
 		url << "https://translation.googleapis.com/language/translate/v2"
-		    << "?key=" << api_key_ << "&q=" << CurlHelper::urlEncode(curl.get(), text)
+		    << "?key=" << api_key_ << "&format=text&q=" << CurlHelper::urlEncode(curl.get(), text)
 		    << "&target=" << sanitize_language_code(target_lang);
 
 		if (source_lang != "auto") {
 			url << "&source=" << sanitize_language_code(source_lang);
 		}
 
-		// Set up curl options
 		curl_easy_setopt(curl.get(), CURLOPT_URL, url.str().c_str());
 		curl_easy_setopt(curl.get(), CURLOPT_WRITEFUNCTION, CurlHelper::WriteCallback);
 		curl_easy_setopt(curl.get(), CURLOPT_WRITEDATA, &response);
@@ -76,10 +75,9 @@ std::string GoogleTranslator::parseResponse(const std::string &response_str)
 		throw TranslationError(error_msg.str());
 	}
 
-	// Google Cloud Translation Basic returns HTML-escaped translatedText,
-	// even when the translation is destined for a plain-text OBS source.
-	// Decode entities such as &#39;, &quot; and &amp; exactly once here.
+	// Decode one entity layer without interpreting caption text as HTML.
+	// Unknown entities, literal markup, whitespace, and UTF-8 are preserved.
 	const std::string translated =
 		response["data"]["translations"][0]["translatedText"].get<std::string>();
-	return QString::fromUtf8(translated.c_str()).fromHtmlEscaped().toUtf8().toStdString();
+	return localvocal::decode_html_entities(translated);
 }

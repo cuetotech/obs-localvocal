@@ -1,0 +1,111 @@
+name: LocalVocal Windows NVIDIA - tested translation fixes
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [build/nvidia-translation-20261023]
+    paths:
+      - '.github/workflows/build-nvidia.yml'
+      - '.github/scripts/**'
+      - 'src/**'
+      - 'tests/regression/**'
+      - 'cmake/**'
+      - 'CMakeLists.txt'
+      - 'CMakePresets.json'
+      - 'buildspec.json'
+      - 'data/**'
+      - 'deps/**'
+
+permissions:
+  contents: read
+concurrency:
+  group: nvidia-translation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-x64-nvidia:
+    name: Windows x64 NVIDIA (RelWithDebInfo)
+    runs-on: windows-2022
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      CI: '1'
+      ACCELERATION: nvidia
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Build and run translation regression tests
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cmake -S tests/regression -B build-regression -A x64
+          if ($LASTEXITCODE -ne 0) { throw 'Test configure failed' }
+          cmake --build build-regression --config Release
+          if ($LASTEXITCODE -ne 0) { throw 'Test compile failed' }
+          ctest --test-dir build-regression -C Release --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw 'Regression tests failed' }
+
+      - name: Initialize Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
+        with:
+          cache: false
+          rustflags: ''
+
+      - name: Build Windows x64 NVIDIA
+        run: |
+          $env:ACCELERATION = 'nvidia'
+          ./.github/scripts/Build-Windows.ps1 -Target x64 -Configuration RelWithDebInfo
+
+      - name: Verify CUDA build selection and installed libraries
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $cache = Get-Content -Raw build_x64/CMakeCache.txt
+          if ($cache -notmatch '(?m)^ACCELERATION:STRING=nvidia\s*$') { throw 'Not an NVIDIA configure' }
+          $project = Get-Content -Raw build_x64/obs-localvocal.vcxproj
+          if (-not $project.Contains('POLYGLOT_WITH_CUDA')) { throw 'CT2 CUDA macro missing' }
+          $names = @(Get-ChildItem release/RelWithDebInfo -Recurse -Filter '*.dll' | ForEach-Object Name)
+          foreach ($required in @('obs-localvocal.dll', 'ctranslate2.dll', 'ggml-cuda.dll')) {
+            if ($names -notcontains $required) { throw "Required library missing: $required" }
+          }
+          $names | Sort-Object
+
+      - name: Package NVIDIA installer and ZIP
+        run: |
+          ./.github/scripts/Package-Windows.ps1 -Target x64 -Configuration RelWithDebInfo -Acceleration nvidia -BuildInstaller
+
+      - name: Record provenance and checksums
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $spec = Get-Content -Raw buildspec.json | ConvertFrom-Json
+          $base = "release/$($spec.name)-$($spec.version)-windows-x64-nvidia"
+          $files = @("$base.zip", "$base-Installer.exe")
+          $lines = foreach ($file in $files) {
+            if (-not (Test-Path $file)) { throw "Package missing: $file" }
+            $hash = Get-FileHash $file -Algorithm SHA256
+            "$($hash.Hash.ToLower())  $(Split-Path $file -Leaf)"
+          }
+          $lines | Set-Content release/SHA256SUMS.txt -Encoding utf8
+          @(
+            "Source: $env:GITHUB_SHA",
+            "Run: https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID",
+            'Configuration: Windows x64 NVIDIA RelWithDebInfo',
+            'CUDA build selection and DLL presence checked; GPU inference and OBS runtime NOT tested by CI.'
+          ) | Set-Content release/BUILDINFO.txt -Encoding utf8
+
+      - name: Upload NVIDIA packages
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: LocalVocal-Windows-x64-NVIDIA-${{ github.sha }}
+          path: |
+            release/*-windows-x64-nvidia.zip
+            release/*-windows-x64-nvidia-Installer.exe
+            release/SHA256SUMS.txt
+            release/BUILDINFO.txt
+          if-no-files-found: error
+          retention-days: 30
