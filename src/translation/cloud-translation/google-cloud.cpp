@@ -1,5 +1,6 @@
 #include "google-cloud.h"
 #include "curl-helper.h"
+#include <QString>
 #include <nlohmann/json.hpp>
 #include <sstream>
 
@@ -75,5 +76,10 @@ std::string GoogleTranslator::parseResponse(const std::string &response_str)
 		throw TranslationError(error_msg.str());
 	}
 
-	return response["data"]["translations"][0]["translatedText"].get<std::string>();
+	// Google Cloud Translation Basic returns HTML-escaped translatedText,
+	// even when the translation is destined for a plain-text OBS source.
+	// Decode entities such as &#39;, &quot; and &amp; exactly once here.
+	const std::string translated =
+		response["data"]["translations"][0]["translatedText"].get<std::string>();
+	return QString::fromUtf8(translated.c_str()).fromHtmlEscaped().toUtf8().toStdString();
 }
