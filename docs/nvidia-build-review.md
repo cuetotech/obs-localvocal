@@ -18,7 +18,7 @@ $env:ACCELERATION = "nvidia"
 ./.github/scripts/Package-Windows.ps1 -Target x64 -Configuration RelWithDebInfo -Acceleration nvidia -BuildInstaller
 ```
 
-The workflow runs these commands on Windows 2022, tests the standalone regression helpers first, checks `ACCELERATION=nvidia`, verifies the generated project's `POLYGLOT_WITH_CUDA` definition, checks the plugin/CT2/Whisper CUDA DLLs in the install tree, and packages an installer plus ZIP. `BUILDINFO.txt` records the source commit and `SHA256SUMS.txt` hashes both packages. Actions are pinned to reviewed immutable revisions. Tokens are read-only and are not persisted by checkout. Concurrency cancellation and a 60-minute timeout limit abandoned builds. No API keys or translation accounts are required to compile.
+The workflow runs these commands on Windows 2022, tests the standalone regression helpers first, checks `ACCELERATION=nvidia`, verifies the generated project's `POLYGLOT_WITH_CUDA` definition, checks the plugin/CT2/Whisper CUDA DLLs in the install tree, and packages an installer plus ZIP. `BUILDINFO.txt` records the source commit and `SHA256SUMS.txt` hashes both packages. Actions are pinned to immutable revisions. Tokens are read-only and are not persisted by checkout. Concurrency cancellation and a 60-minute timeout limit abandoned builds. No API keys or translation accounts are required to compile.
 
 The old Generic build run 39896844468 failed with MSVC C2039 because `QString::fromHtmlEscaped()` does not exist in its Qt API. It produced no usable installer. This branch replaces that implementation instead of claiming to preserve a working binary.
 
@@ -39,6 +39,10 @@ The old Generic build run 39896844468 failed with MSVC C2039 because `QString::f
 `src/transcription-filter-callbacks.cpp::send_sentence_to_cloud_translation_async` creates a detached thread per request and captures a raw `gf` pointer. Mutable settings/cache fields are accessed without synchronization in that function. `transcription_filter_destroy` ultimately frees `gf` and does not join those detached cloud workers. This creates a credible lifetime/race risk during shutdown, filter removal, or settings changes; it is a source finding, not a reproduced crash.
 
 Replace detached work with an owned, bounded translation worker. Copy immutable request configuration, assign session/segment/revision IDs, cancel or discard superseded partials, serialize or sequence publication, and stop/join before freeing the filter. Test delayed responses, out-of-order completion, filter removal during a request, timeout, provider change, and burst inputs. Keep finalized archival ordering independent of low-latency display policy.
+
+### P1: Pair C++ filter construction and destruction
+
+`transcription_filter_create` in `src/transcription-filter.cpp` uses `bmalloc` followed by placement-new to construct the C++ filter object. The inspected `transcription_filter_destroy` stops selected workers/monitors and calls `bfree(gf)` without invoking the C++ destructor. This bypasses normal cleanup of RAII-owned members. Early creation failures also return without unwinding the partially constructed object in that function. Correct the construction/destruction pair and failure cleanup together with worker ownership; do not blindly invoke destructors while detached callbacks can still reference the object. Resource retention on the workstation has not been measured. This lifecycle issue is separate from the narrower target-tokenizer/reload fixes implemented above.
 
 ### P1: Separate local translation from recognition and source-caption publication
 
