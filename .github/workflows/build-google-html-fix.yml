@@ -1,0 +1,63 @@
+name: LocalVocal Windows - Google HTML entity fix
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - build/google-html-fix
+    paths:
+      - .github/workflows/build-google-html-fix.yml
+      - src/translation/cloud-translation/google-cloud.cpp
+
+permissions:
+  contents: read
+
+jobs:
+  windows-x64-generic:
+    name: Windows x64 Generic (LocalVocal 0.6.2)
+    runs-on: windows-2022
+    timeout-minutes: 300
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      CI: "1"
+    steps:
+      - name: Checkout patched fork
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Verify patched Google translation source
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = Get-Content -Raw 'src/translation/cloud-translation/google-cloud.cpp'
+          if (-not $source.Contains('fromHtmlEscaped()')) { throw 'HTML entity decoding fix missing' }
+          $spec = Get-Content -Raw 'buildspec.json' | ConvertFrom-Json
+          if ($spec.version -ne '0.6.2') { throw "Unexpected LocalVocal version: $($spec.version)" }
+
+      - name: Initialize Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Build Windows x64 Generic
+        env:
+          ACCELERATION: generic
+        run: |
+          ./.github/scripts/Build-Windows.ps1 -Target x64 -Configuration RelWithDebInfo
+
+      - name: Package Windows installer and ZIP
+        env:
+          ACCELERATION: generic
+        run: |
+          ./.github/scripts/Package-Windows.ps1 -Target x64 -Configuration RelWithDebInfo -Acceleration generic -BuildInstaller
+
+      - name: Upload patched Windows build
+        uses: actions/upload-artifact@v4
+        with:
+          name: LocalVocal-0.6.2-GoogleHTMLFix-Windows-x64-Generic
+          path: |
+            release/*-windows-x64-generic.zip
+            release/*-windows-x64-generic-Installer.exe
+          if-no-files-found: error
+          retention-days: 14
