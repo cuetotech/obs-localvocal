@@ -13,7 +13,7 @@ size_t bounded_response(void *data, size_t size, size_t count, void *user)
 {
 	constexpr size_t limit = 1024 * 1024;
 	auto &response = *static_cast<std::string *>(user);
-	if (size && count > std::numeric_limits<size_t>::max() / size)
+	if (size && count > (std::numeric_limits<size_t>::max)() / size)
 		return 0;
 	const size_t bytes = size * count;
 	if (bytes > limit - response.size())
@@ -78,7 +78,7 @@ std::string GoogleTranslator::translate(const std::string &text, const std::stri
 		curl_easy_setopt(curl.get(), CURLOPT_SSL_VERIFYHOST, 2L);
 		curl_easy_setopt(curl.get(), CURLOPT_NOSIGNAL, 1L);
 		curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT_MS,
-				 std::min(2000L, timeout_ms_));
+				 (std::min)(2000L, timeout_ms_));
 		curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT_MS, timeout_ms_);
 		curl_easy_setopt(curl.get(), CURLOPT_NOPROGRESS, 0L);
 		curl_easy_setopt(curl.get(), CURLOPT_XFERINFOFUNCTION, cancelled_request);
