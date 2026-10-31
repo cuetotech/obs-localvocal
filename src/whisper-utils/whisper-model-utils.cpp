@@ -31,6 +31,9 @@ void update_whisper_model(struct transcription_filter_data *gf, bool force_whisp
 			? obs_data_get_string(s, "whisper_model_path_external")
 			: "";
 	const bool new_dtw_timestamps = obs_data_get_bool(s, "dtw_token_timestamps");
+	force_whisper_restart = force_whisper_restart ||
+				new_dtw_timestamps != gf->enable_token_ts_dtw;
+	gf->enable_token_ts_dtw = new_dtw_timestamps;
 	obs_data_release(s);
 
 	// update the whisper model path
@@ -125,7 +128,8 @@ void update_whisper_model(struct transcription_filter_data *gf, bool force_whisp
 			} else {
 				// check if the external model file is not currently loaded
 				if (gf->whisper_model_file_currently_loaded ==
-				    external_model_file_path) {
+					    external_model_file_path &&
+				    !force_whisper_restart) {
 					obs_log(LOG_INFO, "External model file is already loaded");
 					return;
 				} else {
@@ -141,16 +145,6 @@ void update_whisper_model(struct transcription_filter_data *gf, bool force_whisp
 		// model path did not change
 		obs_log(gf->log_level, "Model path did not change: %s == %s",
 			gf->whisper_model_path.c_str(), new_model_path.c_str());
-
-		if (new_dtw_timestamps != gf->enable_token_ts_dtw) {
-			// dtw_token_timestamps changed
-			obs_log(gf->log_level, "dtw_token_timestamps changed from %d to %d",
-				gf->enable_token_ts_dtw, new_dtw_timestamps);
-			gf->enable_token_ts_dtw = new_dtw_timestamps;
-			shutdown_whisper_thread(gf, false);
-			start_whisper_thread_with_path(gf, gf->whisper_model_file_currently_loaded,
-						       silero_vad_model_file_str.c_str());
-		}
 
 		if (force_whisper_restart) {
 			obs_log(gf->log_level, "Restarting whisper due to force restart flag");

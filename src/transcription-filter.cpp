@@ -168,6 +168,26 @@ struct obs_audio_data *transcription_filter_filter_audio(void *data, struct obs_
 		// calculate timestamp offset from the start of the stream
 		info.timestamp_offset_ns = now_ns() - gf->start_timestamp_ms * 1000000;
 		deque_push_back(&gf->info_buffer, &info, sizeof(info));
+		// Keep the live audio path bounded; trim complete packets and their paired metadata.
+		// Never wait for Google or caption dwell in this callback. Report gaps on the ASR thread.
+		if (gf->sermon_mode) {
+			const size_t limit =
+				static_cast<size_t>(gf->sample_rate) * 10 * sizeof(float);
+			bool dropped = false;
+			while (gf->input_buffers[0].size > limit &&
+			       gf->info_buffer.size >= sizeof(transcription_filter_audio_info)) {
+				transcription_filter_audio_info old_info{};
+				deque_pop_front(&gf->info_buffer, &old_info, sizeof(old_info));
+				for (size_t c = 0; c < gf->channels; ++c)
+					deque_pop_front(&gf->input_buffers[c], nullptr,
+							old_info.frames * sizeof(float));
+				dropped = true;
+			}
+			if (dropped) {
+				++gf->audio_overflow_events;
+				gf->clear_buffers = true;
+			}
+		}
 		gf->wshiper_thread_cv.notify_one();
 	}
 
@@ -201,10 +221,17 @@ void transcription_filter_destroy(void *data)
 	struct transcription_filter_data *gf =
 		static_cast<struct transcription_filter_data *>(data);
 
-	signal_handler_t *sh_filter = obs_source_get_signal_handler(gf->context);
-	signal_handler_disconnect(sh_filter, "enable", enable_callback, gf);
+	if (gf->context) {
+		auto sh_filter = obs_source_get_signal_handler(gf->context);
+		if (sh_filter)
+			signal_handler_disconnect(sh_filter, "enable", enable_callback, gf);
+	}
+	if (gf->recording_callback_registered)
+		obs_frontend_remove_event_callback(recording_state_callback, gf);
 
 	obs_log(gf->log_level, "filter destroy");
+	gf->active = false;
+	gf->cloud_pipeline.stop();
 	shutdown_whisper_thread(gf);
 
 	if (gf->resampler_to_whisper) {
@@ -222,6 +249,7 @@ void transcription_filter_destroy(void *data)
 	deque_free(&gf->info_buffer);
 
 	deque_free(&gf->resampled_buffer);
+	deque_free(&gf->whisper_buffer);
 
 #ifdef ENABLE_WEBVTT
 	{
@@ -241,6 +269,7 @@ void transcription_filter_destroy(void *data)
 		gf->cloud_translation_monitor.stopThread();
 	}
 
+	gf->~transcription_filter_data();
 	bfree(gf);
 }
 
@@ -266,6 +295,8 @@ void transcription_filter_update(void *data, obs_data_t *s)
 {
 	struct transcription_filter_data *gf =
 		static_cast<struct transcription_filter_data *>(data);
+	std::unique_lock<std::mutex> settings_lock(gf->settings_mutex);
+	++gf->caption_generation;
 	obs_log(gf->log_level, "LocalVocal filter update");
 
 	gf->log_level = (int)obs_data_get_int(s, "log_level");
@@ -323,7 +354,8 @@ void transcription_filter_update(void *data, obs_data_t *s)
 	gf->segment_duration = (int)obs_data_get_int(s, "segment_duration");
 	gf->partial_transcription = obs_data_get_bool(s, "partial_group");
 	gf->partial_latency = (int)obs_data_get_int(s, "partial_latency");
-	bool new_buffered_output = obs_data_get_bool(s, "buffered_output");
+	bool new_buffered_output = obs_data_get_bool(s, "buffered_output") &&
+				   !obs_data_get_bool(s, "sermon_mode");
 	int new_buffer_num_lines = (int)obs_data_get_int(s, "buffer_num_lines");
 	int new_buffer_num_chars_per_line = (int)obs_data_get_int(s, "buffer_num_chars_per_line");
 	TokenBufferSegmentation new_buffer_output_type =
@@ -521,28 +553,52 @@ void transcription_filter_update(void *data, obs_data_t *s)
 		}
 	}
 
-	gf->translate_cloud = obs_data_get_bool(s, "translate_cloud");
-	gf->translate_cloud_config.provider = obs_data_get_string(s, "translate_cloud_provider");
-	gf->translate_cloud_target_language =
-		obs_data_get_string(s, "translate_cloud_target_language");
-	text_output_source_update(obs_data_get_string(s, "translate_cloud_output"),
-				  gf->translate_cloud_output, gf);
-	gf->translate_cloud_only_full_sentences =
-		obs_data_get_bool(s, "translate_cloud_only_full_sentences");
-	gf->translate_cloud_config.access_key = obs_data_get_string(s, "translate_cloud_api_key");
-	gf->translate_cloud_config.secret_key =
-		obs_data_get_string(s, "translate_cloud_secret_key");
-	gf->translate_cloud_config.free = obs_data_get_bool(s, "translate_cloud_deepl_free");
-	gf->translate_cloud_config.region = obs_data_get_string(s, "translate_cloud_region");
-	gf->translate_cloud_config.endpoint = obs_data_get_string(s, "translate_cloud_endpoint");
-	gf->translate_cloud_config.body = obs_data_get_string(s, "translate_cloud_body");
-	gf->translate_cloud_config.response_json_path =
-		obs_data_get_string(s, "translate_cloud_response_json_path");
+	{
+		std::lock_guard<std::mutex> cloud_lock(gf->cloud_mutex);
+		gf->cloud_pipeline.reset();
+		gf->sermon_mode = obs_data_get_bool(s, "sermon_mode");
+		gf->cloud_caption_options.readable = gf->sermon_mode;
+		gf->cloud_caption_options.line_chars = static_cast<size_t>(
+			std::clamp<long long>(obs_data_get_int(s, "english_line_chars"), 24, 60));
+		gf->cloud_caption_options.chars_per_second = static_cast<unsigned>(
+			std::clamp<long long>(obs_data_get_int(s, "english_reading_cps"), 10, 25));
+		gf->cloud_caption_options.min_dwell = std::chrono::milliseconds(
+			std::clamp<long long>(obs_data_get_int(s, "english_min_dwell"), 1000,
+					      6000));
+		gf->cloud_caption_options.max_dwell = std::chrono::milliseconds(
+			std::clamp<long long>(obs_data_get_int(s, "english_max_dwell"),
+					      gf->cloud_caption_options.min_dwell.count(), 10000));
+		gf->cloud_caption_options.max_age = std::chrono::milliseconds(
+			std::clamp<long long>(obs_data_get_int(s, "english_max_age"), 6000, 30000));
+		gf->cloud_pipeline.configure(gf->cloud_caption_options);
+		gf->translate_cloud = obs_data_get_bool(s, "translate_cloud");
+		gf->translate_cloud_config.provider =
+			obs_data_get_string(s, "translate_cloud_provider");
+		gf->translate_cloud_target_language =
+			obs_data_get_string(s, "translate_cloud_target_language");
+		text_output_source_update(obs_data_get_string(s, "translate_cloud_output"),
+					  gf->translate_cloud_output, gf);
+		gf->translate_cloud_only_full_sentences =
+			obs_data_get_bool(s, "translate_cloud_only_full_sentences");
+		gf->translate_cloud_config.access_key =
+			obs_data_get_string(s, "translate_cloud_api_key");
+		gf->translate_cloud_config.secret_key =
+			obs_data_get_string(s, "translate_cloud_secret_key");
+		gf->translate_cloud_config.free =
+			obs_data_get_bool(s, "translate_cloud_deepl_free");
+		gf->translate_cloud_config.region =
+			obs_data_get_string(s, "translate_cloud_region");
+		gf->translate_cloud_config.endpoint =
+			obs_data_get_string(s, "translate_cloud_endpoint");
+		gf->translate_cloud_config.body = obs_data_get_string(s, "translate_cloud_body");
+		gf->translate_cloud_config.response_json_path =
+			obs_data_get_string(s, "translate_cloud_response_json_path");
+	}
 
 	int new_backend_device = (int)obs_data_get_int(s, "backend_device");
 	bool enable_flash_attn = obs_data_get_bool(s, "enable_flash_attn");
-	bool whisper_backend_changed = (gf->gpu_device == new_backend_device) ||
-				       (enable_flash_attn != gf->enable_flash_attn);
+	bool whisper_backend_changed = localvocal::backend_requires_reload(
+		gf->gpu_device, new_backend_device, gf->enable_flash_attn, enable_flash_attn);
 	gf->gpu_device = new_backend_device;
 	gf->enable_flash_attn = enable_flash_attn;
 
@@ -592,6 +648,8 @@ void transcription_filter_update(void *data, obs_data_t *s)
 		}
 	}
 
+	// Reload joins the inference thread, whose callback also uses settings_mutex.
+	settings_lock.unlock();
 	if (gf->context != nullptr && (obs_source_enabled(gf->context) || gf->initial_creation)) {
 		if (gf->initial_creation) {
 			obs_log(LOG_INFO, "Initial filter creation and source enabled");
@@ -624,7 +682,16 @@ void *transcription_filter_create(obs_data_t *settings, obs_source_t *filter)
 	obs_log(LOG_INFO, "LocalVocal filter create");
 
 	void *data = bmalloc(sizeof(struct transcription_filter_data));
-	struct transcription_filter_data *gf = new (data) transcription_filter_data();
+	struct transcription_filter_data *gf = nullptr;
+	try {
+		gf = new (data) transcription_filter_data();
+	} catch (const std::exception &e) {
+		bfree(data);
+		obs_log(LOG_ERROR, "Filter construction failed: %s", e.what());
+		return nullptr;
+	}
+	std::unique_ptr<transcription_filter_data, decltype(&transcription_filter_destroy)>
+		creation_guard(gf, transcription_filter_destroy);
 
 	// Get the number of channels for the input source
 	gf->channels = audio_output_get_channels(obs_get_audio());
@@ -722,9 +789,10 @@ void *transcription_filter_create(obs_data_t *settings, obs_source_t *filter)
 	// handle the event OBS_FRONTEND_EVENT_RECORDING_STARTING to reset the srt sentence number
 	// to match the subtitles with the recording
 	obs_frontend_add_event_callback(recording_state_callback, gf);
+	gf->recording_callback_registered = true;
 
 	obs_log(gf->log_level, "filter created.");
-	return gf;
+	return creation_guard.release();
 }
 
 void transcription_filter_activate(void *data)

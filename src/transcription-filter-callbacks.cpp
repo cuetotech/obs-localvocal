@@ -68,7 +68,6 @@ std::string send_sentence_to_translation(const std::string &sentence,
 					 const std::string &source_language)
 {
 	const std::string last_text = gf->last_text_for_translation;
-	gf->last_text_for_translation = sentence;
 	if (gf->translate && !sentence.empty()) {
 		obs_log(gf->log_level, "Translating text. %s -> %s", source_language.c_str(),
 			gf->target_lang.c_str());
@@ -84,6 +83,7 @@ std::string send_sentence_to_translation(const std::string &sentence,
 				obs_log(LOG_INFO, "Translation: '%s' -> '%s'", sentence.c_str(),
 					translated_text.c_str());
 			}
+			gf->last_text_for_translation = sentence;
 			gf->last_text_translation = translated_text;
 			return translated_text;
 		} else {
@@ -93,50 +93,49 @@ std::string send_sentence_to_translation(const std::string &sentence,
 	return "";
 }
 
+// Configuration is copied on the inference thread. Worker closures never capture gf.
 void send_sentence_to_cloud_translation_async(const std::string &sentence,
-					      struct transcription_filter_data *gf,
-					      const std::string &source_language,
-					      std::function<void(const std::string &)> callback)
+					      transcription_filter_data *gf,
+					      const DetectionResultWithText &result,
+					      uint64_t possible_end_ts)
 {
-	std::thread([sentence, gf, source_language, callback]() {
-		try {
-			const std::string last_text = gf->last_text_for_cloud_translation;
-			gf->last_text_for_cloud_translation = sentence;
-			if (gf->translate_cloud && !sentence.empty()) {
-				obs_log(gf->log_level,
-					"Translating text with cloud provider %s. %s -> %s",
-					gf->translate_cloud_config.provider.c_str(),
-					source_language.c_str(),
-					gf->translate_cloud_target_language.c_str());
-				std::string translated_text;
-				if (sentence == last_text) {
-					// do not translate the same sentence twice
-					callback(gf->last_text_cloud_translation);
-					return;
-				}
-
-				translated_text = translate_cloud(
-					gf->translate_cloud_config, sentence,
-					gf->translate_cloud_target_language, source_language);
-				if (!translated_text.empty()) {
-					if (gf->log_words) {
-						obs_log(LOG_INFO, "Cloud Translation: '%s' -> '%s'",
-							sentence.c_str(), translated_text.c_str());
-					}
-					gf->last_text_translation = translated_text;
-					callback(translated_text);
-					return;
-				} else {
-					obs_log(gf->log_level, "Failed to translate text");
-				}
-			}
-		} catch (const std::exception &e) {
-			obs_log(LOG_ERROR, "Error translating text with cloud: %s", e.what());
-		} catch (...) {
-			obs_log(LOG_ERROR, "Error translating text with cloud");
-		}
-		callback("");
-	}).detach();
+	std::lock_guard<std::mutex> lock(gf->cloud_mutex);
+	if (!gf->translate_cloud || sentence.empty())
+		return;
+	auto config = gf->translate_cloud_config;
+	const auto target_language = gf->translate_cloud_target_language;
+	const auto source_language = result.language;
+	const auto output = gf->translate_cloud_output.empty() ? gf->text_source_name
+							       : gf->translate_cloud_output;
+	auto source = obs_get_source_by_name(output.c_str());
+	if (!source)
+		return;
+	std::shared_ptr<obs_weak_source_t> weak(obs_source_get_weak_source(source),
+						obs_weak_source_release);
+	obs_source_release(source);
+	localvocal::CloudCaptionPipeline<CloudCaptionContext>::Request request;
+	request.cache_key = cloud_cache_key(config, source_language, target_language, sentence);
+	request.context = {result, possible_end_ts, output};
+	request.final = result.result == DETECTION_RESULT_SPEECH;
+	request.translate = [config, sentence, target_language,
+			     source_language](auto cancelled, long remaining_ms) mutable {
+		config.cancelled = std::move(cancelled);
+		config.timeout_ms = std::min(5000L, remaining_ms);
+		return translate_cloud(config, sentence, target_language, source_language);
+	};
+	request.publish = [weak](const std::string &text) {
+		auto target = obs_weak_source_get_source(weak.get());
+		if (!target)
+			return;
+		auto settings = obs_source_get_settings(target);
+		obs_data_set_string(settings, "text", text.c_str());
+		obs_source_update(target, settings);
+		obs_data_release(settings);
+		obs_source_release(target);
+	};
+	if (!gf->cloud_pipeline.submit(std::move(request)))
+		obs_log(LOG_WARNING,
+			"Cloud captions overloaded: final/partial rejected; Korean transcription retained");
 }
 
 void send_sentence_to_file(struct transcription_filter_data *gf,
@@ -288,12 +287,12 @@ void send_caption_to_webvtt(uint64_t possible_end_ts_ms, DetectionResultWithText
 
 void output_text(struct transcription_filter_data *gf, const DetectionResultWithText &result,
 		 uint64_t possible_end_ts, std::string text, std::string output_source,
-		 TranslationType translation_type)
+		 TranslationType translation_type, bool display_output = true)
 {
 	try {
 		obs_log(LOG_DEBUG, "-- outputting text (translation: %d) -- %s", translation_type,
 			text.c_str());
-		if (gf->buffered_output) {
+		if (display_output && gf->buffered_output) {
 			obs_log(LOG_DEBUG, "-- buffered text output -- %s", text.c_str());
 			TokenBufferThread *monitor;
 			switch (translation_type) {
@@ -315,7 +314,7 @@ void output_text(struct transcription_filter_data *gf, const DetectionResultWith
 					get_time_point_from_ms(result.end_timestamp_ms),
 					result.result == DETECTION_RESULT_PARTIAL);
 			}
-		} else {
+		} else if (display_output) {
 			// non-buffered output - send the sentence to the selected source
 			obs_log(LOG_DEBUG, "-- text output to source %s -- %s",
 				output_source.c_str(), text.c_str());
@@ -364,9 +363,42 @@ void output_text(struct transcription_filter_data *gf, const DetectionResultWith
 	}
 }
 
-void set_text_callback(uint64_t possible_end_ts, struct transcription_filter_data *gf,
-		       const DetectionResultWithText &resultIn)
+// Archival outputs stay on the inference thread, independent of screen dwell/skips.
+void drain_cloud_captions(transcription_filter_data *gf)
 {
+	std::lock_guard<std::mutex> settings_lock(gf->settings_mutex);
+	std::lock_guard<std::mutex> lock(gf->cloud_mutex);
+	for (const auto &completed : gf->cloud_pipeline.take_completed()) {
+		output_text(gf, completed.context.result, completed.context.possible_end_ts,
+			    completed.text, completed.context.output_source, CLOUD_TRANSLATION,
+			    false);
+		obs_log(LOG_INFO,
+			"Cloud caption sequence %llu: queue=%lld ms translation=%lld ms output_bytes=%zu",
+			static_cast<unsigned long long>(completed.sequence),
+			static_cast<long long>(completed.queue_time.count()),
+			static_cast<long long>(completed.translation_time.count()),
+			completed.text.size());
+	}
+	const auto stats = gf->cloud_pipeline.stats();
+	const auto &prior = gf->cloud_reported_stats;
+	if (stats.failed != prior.failed || stats.expired != prior.expired ||
+	    stats.rejected != prior.rejected || stats.archive_overflow != prior.archive_overflow)
+		obs_log(LOG_WARNING,
+			"Cloud caption gaps: failed=%llu expired=%llu rejected=%llu archive_overflow=%llu pending=%zu ready=%zu",
+			static_cast<unsigned long long>(stats.failed),
+			static_cast<unsigned long long>(stats.expired),
+			static_cast<unsigned long long>(stats.rejected),
+			static_cast<unsigned long long>(stats.archive_overflow), stats.pending,
+			stats.ready);
+	gf->cloud_reported_stats = stats;
+}
+
+void set_text_callback(uint64_t possible_end_ts, struct transcription_filter_data *gf,
+		       const DetectionResultWithText &resultIn, uint64_t expected_generation)
+{
+	std::lock_guard<std::mutex> settings_lock(gf->settings_mutex);
+	if (expected_generation != UINT64_MAX && expected_generation != gf->caption_generation)
+		return;
 	DetectionResultWithText result = resultIn;
 
 	std::string str_copy = result.text;
@@ -413,23 +445,10 @@ void set_text_callback(uint64_t possible_end_ts, struct transcription_filter_dat
 				      gf->translate;
 
 	bool cloud_translation_overrides_local =
-		should_translate_cloud && (gf->translate_cloud_output == gf->translation_output);
+		gf->translate_cloud && (gf->translate_cloud_output == gf->translation_output);
 
-	if (should_translate_cloud) {
-		send_sentence_to_cloud_translation_async(
-			str_copy, gf, result.language,
-			[gf, result,
-			 possible_end_ts](const std::string &translated_sentence_cloud) {
-				if (!translated_sentence_cloud.empty()) {
-					output_text(gf, result, possible_end_ts,
-						    translated_sentence_cloud,
-						    gf->translate_cloud_output.empty()
-							    ? gf->text_source_name
-							    : gf->translate_cloud_output,
-						    CLOUD_TRANSLATION);
-				}
-			});
-	}
+	if (should_translate_cloud)
+		send_sentence_to_cloud_translation_async(str_copy, gf, result, possible_end_ts);
 
 	if (should_translate_local) {
 		if (cloud_translation_overrides_local) {
@@ -458,7 +477,7 @@ void set_text_callback(uint64_t possible_end_ts, struct transcription_filter_dat
 		(gf->translate_cloud_output == gf->text_source_name);
 	bool local_translate_outputs_to_default_source =
 		gf->translation_output.empty() || (gf->translation_output == gf->text_source_name);
-	bool cloud_translation_overrides_captions = should_translate_cloud &&
+	bool cloud_translation_overrides_captions = gf->translate_cloud &&
 						    cloud_translate_outputs_to_default_source;
 	bool local_translation_overrides_captions = should_translate_local &&
 						    local_translate_outputs_to_default_source;
@@ -741,16 +760,30 @@ void recording_state_callback(enum obs_frontend_event event, void *data)
 	}
 }
 
-void clear_current_caption(transcription_filter_data *gf_)
+void clear_current_caption(transcription_filter_data *gf_, bool reset_cloud)
 {
+	std::lock_guard<std::mutex> settings_lock(gf_->settings_mutex);
+	if (reset_cloud)
+		++gf_->caption_generation;
 	if (gf_->captions_monitor.isEnabled()) {
 		gf_->captions_monitor.clear();
 		gf_->translation_monitor.clear();
 		gf_->cloud_translation_monitor.clear();
 	}
-	send_caption_to_source(gf_->text_source_name, "", gf_);
-	send_caption_to_source(gf_->translation_output, "", gf_);
-	send_caption_to_source(gf_->translate_cloud_output, "", gf_);
+	{
+		std::lock_guard<std::mutex> lock(gf_->cloud_mutex);
+		const auto cloud_output = gf_->translate_cloud_output.empty()
+						  ? gf_->text_source_name
+						  : gf_->translate_cloud_output;
+		if (reset_cloud)
+			gf_->cloud_pipeline.reset();
+		if (reset_cloud || !gf_->translate_cloud || gf_->text_source_name != cloud_output)
+			send_caption_to_source(gf_->text_source_name, "", gf_);
+		if (reset_cloud || !gf_->translate_cloud || gf_->translation_output != cloud_output)
+			send_caption_to_source(gf_->translation_output, "", gf_);
+		if (reset_cloud)
+			send_caption_to_source(gf_->translate_cloud_output, "", gf_);
+	}
 	// reset translation context
 	gf_->last_text_for_translation = "";
 	gf_->last_text_translation = "";

@@ -20,7 +20,8 @@
 std::unique_ptr<ITranslator> createTranslator(const CloudTranslatorConfig &config)
 {
 	if (config.provider == "google") {
-		return std::make_unique<GoogleTranslator>(config.access_key);
+		return std::make_unique<GoogleTranslator>(config.access_key, config.cancelled,
+							  config.timeout_ms);
 	} else if (config.provider == "deepl") {
 		return std::make_unique<DeepLTranslator>(config.access_key, config.free);
 	} else if (config.provider == "azure") {
@@ -48,6 +49,8 @@ std::string translate_cloud(const CloudTranslatorConfig &config, const std::stri
 			    const std::string &target_lang, const std::string &source_lang)
 {
 	try {
+		if (config.cancelled && config.cancelled->load())
+			return "";
 		auto translator = createTranslator(config);
 		obs_log(LOG_INFO, "translate with cloud provider %s. %s -> %s",
 			config.provider.c_str(), source_lang.c_str(), target_lang.c_str());
