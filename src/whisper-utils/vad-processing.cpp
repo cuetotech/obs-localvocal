@@ -334,6 +334,20 @@ vad_state vad_based_segmentation(transcription_filter_data *gf, vad_state last_v
 
 		last_vad_state = current_vad_state;
 
+		// In sermon mode, continuous speech must eventually produce a final for Google.
+		// Bound by accumulated speech samples rather than punctuation or wall-clock silence.
+		if (gf->sermon_mode && gf->whisper_buffer.size / sizeof(float) >=
+					       static_cast<size_t>(gf->segment_duration) *
+						       WHISPER_SAMPLE_RATE / 1000) {
+			run_inference_and_callbacks(gf, current_vad_state.start_ts_offest_ms,
+						    current_vad_state.end_ts_offset_ms,
+						    VAD_STATE_WAS_ON);
+			current_vad_state.start_ts_offest_ms = current_vad_state.end_ts_offset_ms;
+			current_vad_state.last_partial_segment_end_ts = 0;
+			last_vad_state = current_vad_state;
+			continue;
+		}
+
 		// if partial transcription is enabled, check if we should send a partial segment
 		if (!gf->partial_transcription) {
 			continue;

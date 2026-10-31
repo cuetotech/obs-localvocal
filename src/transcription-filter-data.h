@@ -25,6 +25,7 @@
 #include "whisper-utils/whisper-processing.h"
 #include "whisper-utils/token-buffer-thread.h"
 #include "translation/cloud-translation/translation-cloud.h"
+#include "captions/cloud-caption-pipeline.h"
 
 #define MAX_PREPROC_CHANNELS 10
 #define MAX_WEBVTT_TRACKS 5
@@ -96,6 +97,12 @@ struct gpu_device_info {
 	const char *device_description;
 };
 
+struct CloudCaptionContext {
+	DetectionResultWithText result;
+	uint64_t possible_end_ts;
+	std::string output_source;
+};
+
 struct transcription_filter_data {
 	obs_source_t *context; // obs filter source (this filter)
 	size_t channels;       // number of channels
@@ -105,7 +112,7 @@ struct transcription_filter_data {
 	// How many frames were processed in the last whisper frame (this is dynamic)
 	size_t last_num_frames;
 	// Start begining timestamp in ms since epoch
-	uint64_t start_timestamp_ms;
+	uint64_t start_timestamp_ms = 0;
 	// Sentence counter for srt
 	size_t sentence_number;
 	// Minimal subtitle duration in ms
@@ -114,23 +121,24 @@ struct transcription_filter_data {
 	size_t max_sub_duration;
 	// Last time a subtitle was rendered
 	uint64_t last_sub_render_time;
-	bool cleared_last_sub;
+	bool cleared_last_sub = true;
 
 	// GPU device to use, or -1 for CPU only
-	int gpu_device;
+	int gpu_device = -1;
 	std::vector<gpu_device_info> gpu_devices;
-	bool enable_flash_attn;
+	bool enable_flash_attn = false;
 
 	/* PCM buffers */
 	float *copy_buffers[MAX_PREPROC_CHANNELS];
-	struct deque info_buffer;
-	struct deque input_buffers[MAX_PREPROC_CHANNELS];
-	std::atomic<bool> clear_buffers;
-	struct deque whisper_buffer;
+	struct deque info_buffer = {};
+	struct deque input_buffers[MAX_PREPROC_CHANNELS] = {};
+	std::atomic<bool> clear_buffers{false};
+	std::atomic<uint64_t> caption_generation{0};
+	struct deque whisper_buffer = {};
 
 	/* Resampler */
 	audio_resampler_t *resampler_to_whisper;
-	struct deque resampled_buffer;
+	struct deque resampled_buffer = {};
 
 	/* whisper */
 	std::string whisper_model_path;
@@ -148,7 +156,7 @@ struct transcription_filter_data {
 	int log_level = LOG_DEBUG;
 	bool log_words;
 	bool caption_to_stream;
-	bool active = false;
+	std::atomic<bool> active{false};
 	bool save_to_file = false;
 	bool save_srt = false;
 	bool truncate_output_file = false;
@@ -169,6 +177,10 @@ struct transcription_filter_data {
 	float duration_filter_threshold = 2.25f;
 	// Duration of the target segment buffer in ms
 	int segment_duration = 7000;
+	std::atomic<bool> sermon_mode{false};
+	std::atomic<uint64_t> audio_overflow_events{0};
+	uint64_t reported_audio_overflows = 0;
+	bool recording_callback_registered = false;
 
 	// Cloud translation options
 	bool translate_cloud = false;
@@ -178,6 +190,10 @@ struct transcription_filter_data {
 	bool translate_cloud_only_full_sentences = true;
 	std::string last_text_for_cloud_translation;
 	std::string last_text_cloud_translation;
+	std::mutex cloud_mutex;
+	localvocal::CloudCaptionPipeline<CloudCaptionContext> cloud_pipeline;
+	localvocal::CaptionOptions cloud_caption_options;
+	localvocal::CloudCaptionPipeline<CloudCaptionContext>::Stats cloud_reported_stats;
 
 	// Transcription context sentences
 	int n_context_sentences;
@@ -197,6 +213,8 @@ struct transcription_filter_data {
 
 	std::mutex whisper_buf_mutex;
 	std::mutex whisper_ctx_mutex;
+	std::mutex
+		settings_mutex; // Callback snapshots/publication vs settings; release before join/reload.
 	std::condition_variable wshiper_thread_cv;
 	std::optional<std::condition_variable> input_cv;
 
@@ -274,8 +292,10 @@ enum TranslationType { NO_TRANSLATION = 0, LOCAL_TRANSLATION = 1, CLOUD_TRANSLAT
 
 // Callback sent when the transcription has a new result
 void set_text_callback(uint64_t possible_end_ts, struct transcription_filter_data *gf,
-		       const DetectionResultWithText &str);
-void clear_current_caption(transcription_filter_data *gf_);
+		       const DetectionResultWithText &str,
+		       uint64_t expected_generation = UINT64_MAX);
+void clear_current_caption(transcription_filter_data *gf_, bool reset_cloud = true);
+void drain_cloud_captions(transcription_filter_data *gf);
 
 // Callback sent when the VAD finds an audio chunk. Sample rate = WHISPER_SAMPLE_RATE, channels = 1
 // The audio chunk is in 32-bit float format

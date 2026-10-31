@@ -3,7 +3,7 @@ name: LocalVocal Windows NVIDIA - tested translation fixes
 on:
   workflow_dispatch:
   push:
-    branches: [build/nvidia-translation-20261023]
+    branches: [build/nvidia-translation-20261023, feat/rtx4070-sermon-captions]
     paths:
       - '.github/workflows/build-nvidia.yml'
       - '.github/scripts/**'
