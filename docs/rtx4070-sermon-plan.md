@@ -110,6 +110,14 @@ undefined-behavior sanitizers where supported. These checks do not execute OBS, 
   Require stable resources, responsive slides, correct caption order/dwell and no new rendering/
   encoding overload compared with the same baseline. Promote only after the service rehearsal passes.
 
+## Verification recorded on 2026-10-31
+
+- Local CMake/CTest: both suites passed, including 51 caption/backend/cache/worker checks and 35 existing entity/prefix cases.
+- The caption suite also passed AddressSanitizer + UndefinedBehaviorSanitizer and ThreadSanitizer locally.
+- [Windows NVIDIA run 41204170563](https://github.com/cuetotech/obs-localvocal/actions/runs/41204170563) completed **SUCCESS**, building exact source `e25348b6d4d25b4232c0622e2406b713f9fde8f9`. Windows regression tests, full x64 NVIDIA compilation, CUDA definition/library checks, installer/ZIP packaging, provenance/checksum generation and upload all passed.
+- [Test artifact 13044490896](https://github.com/cuetotech/obs-localvocal/actions/runs/41204170563/artifacts/13044490896): 1,451,703,435 bytes; GitHub-reported outer artifact ZIP SHA-256 `371ae08ee631e7aeef47e4beaf8cb29f6eddc1bc012abaf7beb15028ece8583e`; retention expires November 30, 2026. This is the outer ZIP digest, not an installer checksum. The artifact was not downloaded or executed here.
+- This verification note is documentation after the compiled source commit. No RTX 4070 inference, Google API request, Windows OBS interaction, bilingual quality evaluation or church rehearsal was performed by these automated checks.
+
 ## Follow-on work after measurement
 
 Consider two cloud workers only if serialized Google time is the measured bottleneck; that requires a
