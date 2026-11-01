@@ -26,6 +26,10 @@ for the church RTX 4070 12 GB, change the installed Sunday system, or authorize 
 
 ## Code map
 
+General C++ correctness follow-up: see [caption text and model download safety](cpp-safety-fixes.md)
+for the implemented text-preservation, bounds, transfer-integrity and callback-lifetime fixes,
+their regression evidence and the remaining Windows/OBS acceptance work.
+
 - `src/captions/caption-layout.h`: word-aware UTF-8 pages, visible-character counting, dwell, backend comparison.
 - `src/captions/cloud-caption-pipeline.h`: one translation thread and one presentation thread; bounded work, cancellation, cache and completion records.
 - `src/transcription-filter-callbacks.cpp`: capture configuration/source lifetime on submission, drain archival results on the ASR thread, keep Korean inactivity clearing separate from English presentation.

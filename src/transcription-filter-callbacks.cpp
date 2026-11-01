@@ -866,6 +866,8 @@ void enable_callback(void *data_, calldata_t *cd)
 	} else {
 		obs_log(gf_->log_level, "enable_callback: disable");
 		gf_->active = false;
+		gf_->model_callbacks->cancel(0);
+		gf_->model_callbacks->cancel(1);
 		reset_caption_state(gf_);
 		shutdown_whisper_thread(gf_);
 	}

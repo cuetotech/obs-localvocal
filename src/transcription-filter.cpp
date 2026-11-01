@@ -230,6 +230,7 @@ void transcription_filter_destroy(void *data)
 		obs_frontend_remove_event_callback(recording_state_callback, gf);
 
 	obs_log(gf->log_level, "filter destroy");
+	gf->model_callbacks->close();
 	gf->active = false;
 	gf->cloud_pipeline.stop();
 	shutdown_whisper_thread(gf);
@@ -526,12 +527,14 @@ void transcription_filter_update(void *data, obs_data_t *s)
 			if (gf->translation_model_index != "whisper-based-translation") {
 				start_translation(gf);
 			} else {
+				gf->model_callbacks->cancel(1);
 				// whisper-based translation
 				obs_log(gf->log_level, "Starting whisper-based translation...");
 				gf->translate = false;
 			}
 		}
 	} else {
+		gf->model_callbacks->cancel(1);
 		gf->translate = false;
 	}
 

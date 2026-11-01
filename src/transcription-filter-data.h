@@ -26,6 +26,7 @@
 #include "whisper-utils/token-buffer-thread.h"
 #include "translation/cloud-translation/translation-cloud.h"
 #include "captions/cloud-caption-pipeline.h"
+#include "model-utils/download-safety.h"
 
 #define MAX_PREPROC_CHANNELS 10
 #define MAX_WEBVTT_TRACKS 5
@@ -104,6 +105,9 @@ struct CloudCaptionContext {
 };
 
 struct transcription_filter_data {
+	std::shared_ptr<localvocal::ModelCallbackLifetime<transcription_filter_data>> model_callbacks =
+		std::make_shared<localvocal::ModelCallbackLifetime<transcription_filter_data>>(
+			this);
 	obs_source_t *context; // obs filter source (this filter)
 	size_t channels;       // number of channels
 	uint32_t sample_rate;  // input sample rate
@@ -265,6 +269,8 @@ struct transcription_filter_data {
 	std::atomic<bool> webvtt_caption_to_stream;
 	std::atomic<bool> webvtt_caption_to_recording;
 #endif
+
+	~transcription_filter_data() { model_callbacks->close(); }
 
 	// ctor
 	transcription_filter_data() : whisper_buf_mutex(), whisper_ctx_mutex(), wshiper_thread_cv()

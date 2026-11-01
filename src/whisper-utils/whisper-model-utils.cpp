@@ -8,6 +8,7 @@
 #include "whisper-processing.h"
 #include "plugin-support.h"
 #include "model-utils/model-downloader.h"
+#include "model-utils/model-find-utils.h"
 
 void update_whisper_model(struct transcription_filter_data *gf, bool force_whisper_restart)
 {
@@ -35,6 +36,9 @@ void update_whisper_model(struct transcription_filter_data *gf, bool force_whisp
 				new_dtw_timestamps != gf->enable_token_ts_dtw;
 	gf->enable_token_ts_dtw = new_dtw_timestamps;
 	obs_data_release(s);
+
+	const auto lifetime = gf->model_callbacks;
+	const auto session = lifetime->begin(0);
 
 	// update the whisper model path
 
@@ -83,44 +87,39 @@ void update_whisper_model(struct transcription_filter_data *gf, bool force_whisp
 
 			const ModelInfo &model_info = models_info().at(new_model_path);
 
-			// check if the model exists, if not, download it
-			std::string model_file_found = find_model_bin_file(model_info);
-			if (model_file_found == "") {
-				obs_log(LOG_WARNING, "Whisper model does not exist");
-				download_model_with_ui_dialog(model_info, [gf, new_model_path,
-									   silero_vad_model_file_str,
-									   model_info](
-										  int download_status,
-										  const std::string
-											  &path) {
-					if (download_status == 0) {
-						obs_log(LOG_INFO, "Model download complete");
-						gf->whisper_model_path = new_model_path;
-						download_coreml_encoder_model_if_available(
-							model_info,
-							[gf, path, silero_vad_model_file_str]() {
+			// Verification and any transfer run on the owned download worker, including cached files.
+			download_model_with_ui_dialog(
+				model_info,
+				[lifetime, session, new_model_path, silero_vad_model_file_str,
+				 model_info](int status, const std::string &folder) {
+					if (session->load())
+						return;
+					if (status != 0) {
+						obs_log(LOG_ERROR, "Whisper model download failed");
+						return;
+					}
+					const auto path = find_model_file_in_folder(folder);
+					if (path.empty()) {
+						obs_log(LOG_ERROR,
+							"Downloaded Whisper model file missing");
+						return;
+					}
+					download_coreml_encoder_model_if_available(
+						model_info,
+						[lifetime, session, path, new_model_path,
+						 silero_vad_model_file_str] {
+							lifetime->run(session, [&](auto &owner) {
+								owner.whisper_model_path =
+									new_model_path;
 								start_whisper_thread_with_path(
-									gf, path,
+									&owner, path,
 									silero_vad_model_file_str
 										.c_str());
 							});
-					} else {
-						obs_log(LOG_ERROR, "Model download failed");
-					}
-				});
-			} else {
-				// Model exists, just load it
-				gf->whisper_model_path = new_model_path;
-
-				download_coreml_encoder_model_if_available(
-					model_info,
-					[gf, model_file_found, silero_vad_model_file_str]() {
-						start_whisper_thread_with_path(
-							gf, model_file_found,
-							silero_vad_model_file_str.c_str());
-					});
-			}
-
+						},
+						session);
+				},
+				session);
 		} else {
 			// new model is external file, get file location from file property
 			if (external_model_file_path.empty()) {
