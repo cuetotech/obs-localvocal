@@ -517,6 +517,20 @@ void transcription_filter_update(void *data, obs_data_t *s)
 	std::string new_translation_model_path_external =
 		obs_data_get_string(s, "translation_model_path_external");
 
+	// Capture decoding settings before a catalog model is loaded asynchronously.
+	ctranslate2::TranslationOptions translation_options;
+	translation_options.sampling_temperature =
+		(float)obs_data_get_double(s, "translation_sampling_temperature");
+	translation_options.repetition_penalty =
+		(float)obs_data_get_double(s, "translation_repetition_penalty");
+	translation_options.beam_size = (int)obs_data_get_int(s, "translation_beam_size");
+	translation_options.max_decoding_length =
+		(int)obs_data_get_int(s, "translation_max_decoding_length");
+	translation_options.no_repeat_ngram_size =
+		(int)obs_data_get_int(s, "translation_no_repeat_ngram_size");
+	translation_options.max_input_length =
+		(int)obs_data_get_int(s, "translation_max_input_length");
+
 	if (new_translate) {
 		if (new_translate != gf->translate ||
 		    new_translate_model_index != gf->translation_model_index ||
@@ -525,7 +539,7 @@ void transcription_filter_update(void *data, obs_data_t *s)
 			gf->translation_model_index = new_translate_model_index;
 			gf->translation_model_path_external = new_translation_model_path_external;
 			if (gf->translation_model_index != "whisper-based-translation") {
-				start_translation(gf);
+				start_translation(gf, translation_options);
 			} else {
 				gf->model_callbacks->cancel(1);
 				// whisper-based translation
@@ -538,22 +552,11 @@ void transcription_filter_update(void *data, obs_data_t *s)
 		gf->translate = false;
 	}
 
-	// translation options
-	if (gf->translate) {
-		if (gf->translation_ctx.options) {
-			gf->translation_ctx.options->sampling_temperature =
-				(float)obs_data_get_double(s, "translation_sampling_temperature");
-			gf->translation_ctx.options->repetition_penalty =
-				(float)obs_data_get_double(s, "translation_repetition_penalty");
-			gf->translation_ctx.options->beam_size =
-				(int)obs_data_get_int(s, "translation_beam_size");
-			gf->translation_ctx.options->max_decoding_length =
-				(int)obs_data_get_int(s, "translation_max_decoding_length");
-			gf->translation_ctx.options->no_repeat_ngram_size =
-				(int)obs_data_get_int(s, "translation_no_repeat_ngram_size");
-			gf->translation_ctx.options->max_input_length =
-				(int)obs_data_get_int(s, "translation_max_input_length");
-		}
+	// Update an already loaded model under the same lock used by inference.
+	{
+		std::lock_guard<std::mutex> lock(gf->whisper_ctx_mutex);
+		if (gf->translate && gf->translation_ctx.options)
+			*gf->translation_ctx.options = translation_options;
 	}
 
 	{

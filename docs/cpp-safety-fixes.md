@@ -20,6 +20,8 @@ or change the chosen Turbo V3 Q5 external model, Google provider, or decoder set
 Checksum work runs off the OBS UI thread for catalog models. Completion/model initialization
 still runs synchronously under the owner lease and can delay shutdown while it finishes.
 External user-selected models have no catalog checksum and retain their existing load path.
+Native decoding settings are captured by value and restored after initialization, before enabling
+inference, so asynchronous catalog verification retains the selected operator settings.
 Legacy catalog entries without a checksum accept a nonempty regular file and log that limitation;
 this is not cryptographic verification. A verified staged file is promoted by rename; replacing
 a known-invalid destination requires removing that invalid file first on Windows. There is no
@@ -69,7 +71,8 @@ ctest --test-dir build-download --output-on-failure
    A failure must never load a partial model or report success.
 5. Switch models, disable/remove the filter and close OBS during a disposable download. Old
    completions must not load a model or access a deleted filter; no orphan thread or Qt warning.
-   Repeat with two filters requesting the same model.
+   Repeat with two filters requesting the same model. For native CT2 translation, verify that
+   custom beam, temperature and length settings survive verified-cache loading and a model switch.
 6. Rehearse a representative fast Korean sermon while recording latency, readability, OBS frame
    loss and GPU headroom. No runtime performance improvement is claimed until measured there.
 

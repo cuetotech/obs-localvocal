@@ -14,13 +14,18 @@
 #include <stdexcept>
 
 void build_and_enable_translation(struct transcription_filter_data *gf,
-				  const std::string &model_file_path)
+				  const std::string &model_file_path,
+				  const ctranslate2::TranslationOptions *options)
 {
 	std::lock_guard<std::mutex> lock(gf->whisper_ctx_mutex);
 
 	gf->translation_ctx.local_model_folder_path = model_file_path;
 	if (build_translation_context(gf->translation_ctx) ==
 	    OBS_POLYGLOT_TRANSLATION_INIT_SUCCESS) {
+		// Initialization creates defaults. Restore the captured operator settings
+		// before enabling inference, including after asynchronous cache verification.
+		if (options)
+			*gf->translation_ctx.options = *options;
 		obs_log(LOG_INFO, "Enable translation");
 		gf->translate = true;
 	} else {

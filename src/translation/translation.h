@@ -35,7 +35,8 @@ struct translation_context {
 
 int build_translation_context(struct translation_context &translation_ctx);
 void build_and_enable_translation(struct transcription_filter_data *gf,
-				  const std::string &model_file_path);
+				  const std::string &model_file_path,
+				  const ctranslate2::TranslationOptions *options = nullptr);
 
 int translate(struct translation_context &translation_ctx, const std::string &text,
 	      const std::string &source_lang, const std::string &target_lang, std::string &result);

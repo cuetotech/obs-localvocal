@@ -6,7 +6,8 @@
 #include "plugin-support.h"
 #include "model-utils/model-downloader.h"
 
-void start_translation(struct transcription_filter_data *gf)
+void start_translation(struct transcription_filter_data *gf,
+		       const ctranslate2::TranslationOptions &options)
 {
 	obs_log(LOG_INFO, "Starting translation...");
 	gf->model_callbacks->cancel(1);
@@ -19,7 +20,7 @@ void start_translation(struct transcription_filter_data *gf)
 			return;
 		}
 		std::string model_file_found = gf->translation_model_path_external;
-		build_and_enable_translation(gf, model_file_found);
+		build_and_enable_translation(gf, model_file_found, &options);
 		return;
 	}
 
@@ -29,10 +30,10 @@ void start_translation(struct transcription_filter_data *gf)
 	gf->translate = false;
 	download_model_with_ui_dialog(
 		translation_model_info,
-		[lifetime, session](int status, const std::string &path) {
+		[lifetime, session, options](int status, const std::string &path) {
 			lifetime->run(session, [&](auto &owner) {
 				if (status == 0)
-					build_and_enable_translation(&owner, path);
+					build_and_enable_translation(&owner, path, &options);
 				else {
 					obs_log(LOG_ERROR, "Translation model download failed");
 					owner.translate = false;
