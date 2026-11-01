@@ -862,7 +862,8 @@ void enable_callback(void *data_, calldata_t *cd)
 		obs_log(gf_->log_level, "enable_callback: enable");
 		gf_->active = true;
 		reset_caption_state(gf_);
-		update_whisper_model(gf_);
+		// Reapply saved settings so cancelled native/Whisper loads restart on enable.
+		obs_source_update(gf_->context, nullptr);
 	} else {
 		obs_log(gf_->log_level, "enable_callback: disable");
 		gf_->active = false;
