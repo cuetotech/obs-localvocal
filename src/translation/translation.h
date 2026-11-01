@@ -11,7 +11,7 @@ enum InputTokenizationStyle { INPUT_TOKENIZAION_M2M100 = 0, INPUT_TOKENIZAION_T5
 
 namespace ctranslate2 {
 class Translator;
-class TranslationOptions;
+struct TranslationOptions;
 } // namespace ctranslate2
 
 namespace sentencepiece {
