@@ -260,7 +260,8 @@ void ModelDownloadWorker::download_model()
 					});
 			}
 		localvocal::check_download_cancel(cancelled);
-		emit download_finished(existing_valid ? existing->u8string() : folder.u8string());
+		// Preserve the existing narrow-path callback contract used by model-find utilities.
+		emit download_finished(existing_valid ? existing->string() : folder.string());
 	} catch (const std::exception &error) {
 		emit download_error(error.what());
 	} catch (...) {
