@@ -148,6 +148,7 @@ struct DetectionResultWithText run_whisper_inference(struct transcription_filter
 		return {DETECTION_RESULT_UNKNOWN, "", t0, t1, {}, ""};
 	}
 
+	std::lock_guard<std::mutex> settings_lock(gf->settings_mutex);
 	if (pcm32f_data_ == nullptr || pcm32f_num_samples == 0) {
 		obs_log(LOG_ERROR, "run_whisper_inference: pcm32f_data is null or size is 0");
 		return {DETECTION_RESULT_UNKNOWN, "", t0, t1, {}, ""};
@@ -201,13 +202,15 @@ struct DetectionResultWithText run_whisper_inference(struct transcription_filter
 		return {DETECTION_RESULT_UNKNOWN, "", t0, t1, {}, ""};
 	}
 
+	const auto saved_prompt = gf->whisper_params.initial_prompt;
+	std::string context_prompt; // Must outlive whisper_full below.
 	if (gf->n_context_sentences > 0 && !gf->last_transcription_sentence.empty()) {
 		// set the initial prompt to the last transcription sentences (concatenated)
-		std::string initial_prompt = gf->last_transcription_sentence[0];
+		context_prompt = gf->last_transcription_sentence[0];
 		for (size_t i = 1; i < gf->last_transcription_sentence.size(); ++i) {
-			initial_prompt += " " + gf->last_transcription_sentence[i];
+			context_prompt += " " + gf->last_transcription_sentence[i];
 		}
-		gf->whisper_params.initial_prompt = initial_prompt.c_str();
+		gf->whisper_params.initial_prompt = context_prompt.c_str();
 		obs_log(gf->log_level, "Initial prompt: %s", gf->whisper_params.initial_prompt);
 	}
 
@@ -231,6 +234,7 @@ struct DetectionResultWithText run_whisper_inference(struct transcription_filter
 		whisper_full_result = whisper_full(gf->whisper_context, gf->whisper_params,
 						   pcm32f_data, (int)pcm32f_size);
 	} catch (const std::exception &e) {
+		gf->whisper_params.initial_prompt = saved_prompt;
 		obs_log(LOG_ERROR, "Whisper exception: %s. Filter restart is required", e.what());
 		whisper_free(gf->whisper_context);
 		gf->whisper_context = nullptr;
@@ -239,6 +243,7 @@ struct DetectionResultWithText run_whisper_inference(struct transcription_filter
 		}
 		return {DETECTION_RESULT_UNKNOWN, "", t0, t1, {}, ""};
 	}
+	gf->whisper_params.initial_prompt = saved_prompt;
 	if (should_free_buffer) {
 		bfree(pcm32f_data);
 	}
@@ -354,13 +359,19 @@ void run_inference_and_callbacks(transcription_filter_data *gf, uint64_t start_o
 				pcm32f_size * sizeof(float));
 	}
 
+	const auto generation = gf->caption_generation.load();
 	auto inference_start_ts = now_ms();
 
 	struct DetectionResultWithText inference_result =
 		run_whisper_inference(gf, pcm32f_data, pcm32f_size_with_silence, start_offset_ms,
 				      end_offset_ms, vad_state);
 	// output inference result to a text source
-	set_text_callback(inference_start_ts, gf, inference_result);
+	const auto inference_end_ts = now_ms();
+	obs_log(LOG_INFO, "ASR stage: inference=%llu ms audio=%llu ms final=%d",
+		static_cast<unsigned long long>(inference_end_ts - inference_start_ts),
+		static_cast<unsigned long long>(end_offset_ms - start_offset_ms),
+		vad_state != VAD_STATE_PARTIAL);
+	set_text_callback(inference_start_ts, gf, inference_result, generation);
 
 	if (gf->enable_audio_chunks_callback && vad_state != VAD_STATE_PARTIAL) {
 		audio_chunk_callback(gf, pcm32f_data, pcm32f_size_with_silence, vad_state,
@@ -401,11 +412,11 @@ void whisper_loop(void *data)
 			}
 		}
 
-		if (gf->clear_buffers) {
-			deque_pop_front(&gf->resampled_buffer, nullptr, 0);
-			deque_pop_front(&gf->whisper_buffer, nullptr, 0);
-			current_vad_state = {false, now_ms(), 0, 0};
-			gf->clear_buffers = false;
+		if (gf->clear_buffers.exchange(false)) {
+			deque_pop_front(&gf->resampled_buffer, nullptr, gf->resampled_buffer.size);
+			deque_pop_front(&gf->whisper_buffer, nullptr, gf->whisper_buffer.size);
+			current_vad_state = {false, now_ms() - gf->start_timestamp_ms, 0, 0};
+			clear_current_caption(gf);
 		}
 
 		if (gf->vad_mode == VAD_MODE_HYBRID) {
@@ -424,9 +435,18 @@ void whisper_loop(void *data)
 				obs_log(gf->log_level,
 					"Clearing current subtitle. now: %lu ms, last: %lu ms", now,
 					gf->last_sub_render_time);
-				clear_current_caption(gf);
+				clear_current_caption(gf, false);
 			}
 		}
+
+		const auto overflows = gf->audio_overflow_events.load();
+		if (overflows != gf->reported_audio_overflows) {
+			obs_log(LOG_WARNING,
+				"ASR audio backlog exceeded 10 seconds; old audio dropped (%llu overload events)",
+				static_cast<unsigned long long>(overflows));
+			gf->reported_audio_overflows = overflows;
+		}
+		drain_cloud_captions(gf);
 
 		if (gf->input_cv.has_value())
 			gf->input_cv->notify_one();

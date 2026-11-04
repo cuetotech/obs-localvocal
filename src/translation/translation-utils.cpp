@@ -6,9 +6,11 @@
 #include "plugin-support.h"
 #include "model-utils/model-downloader.h"
 
-void start_translation(struct transcription_filter_data *gf)
+void start_translation(struct transcription_filter_data *gf,
+		       const ctranslate2::TranslationOptions &options)
 {
 	obs_log(LOG_INFO, "Starting translation...");
+	gf->model_callbacks->cancel(1);
 
 	if (gf->translation_model_index == "!!!external!!!") {
 		obs_log(LOG_INFO, "External model selected.");
@@ -18,26 +20,25 @@ void start_translation(struct transcription_filter_data *gf)
 			return;
 		}
 		std::string model_file_found = gf->translation_model_path_external;
-		build_and_enable_translation(gf, model_file_found);
+		build_and_enable_translation(gf, model_file_found, &options);
 		return;
 	}
 
+	const auto lifetime = gf->model_callbacks;
+	const auto session = lifetime->begin(1);
 	const ModelInfo &translation_model_info = models_info().at(gf->translation_model_index);
-	auto model_file_found = find_model_folder(translation_model_info);
-	if (!model_file_found.has_value()) {
-		obs_log(LOG_INFO, "Translation CT2 model does not exist. Downloading...");
-		download_model_with_ui_dialog(
-			translation_model_info, [gf](int download_status, const std::string &path) {
-				if (download_status == 0) {
-					obs_log(LOG_INFO, "CT2 model download complete");
-					build_and_enable_translation(gf, path);
-				} else {
-					obs_log(LOG_ERROR, "Model download failed");
-					gf->translate = false;
+	gf->translate = false;
+	download_model_with_ui_dialog(
+		translation_model_info,
+		[lifetime, session, options](int status, const std::string &path) {
+			lifetime->run(session, [&](auto &owner) {
+				if (status == 0)
+					build_and_enable_translation(&owner, path, &options);
+				else {
+					obs_log(LOG_ERROR, "Translation model download failed");
+					owner.translate = false;
 				}
 			});
-	} else {
-		// Model exists, just load it
-		build_and_enable_translation(gf, model_file_found.value().string());
-	}
+		},
+		session);
 }

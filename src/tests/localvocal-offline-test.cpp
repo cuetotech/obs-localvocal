@@ -285,7 +285,7 @@ void json_segments_saver_thread_function()
 	}
 }
 
-void clear_current_caption(transcription_filter_data *gf_)
+void clear_current_caption(transcription_filter_data *gf_, bool /*reset_cloud*/)
 {
 	if (gf_->captions_monitor.isEnabled()) {
 		gf_->captions_monitor.clear();
@@ -303,8 +303,10 @@ void clear_current_caption(transcription_filter_data *gf_)
 	gf_->cleared_last_sub = true;
 }
 
-void set_text_callback(struct transcription_filter_data *gf,
-		       const DetectionResultWithText &resultIn)
+void drain_cloud_captions(transcription_filter_data *) {}
+
+void set_text_callback(uint64_t /*possible_end_ts*/, struct transcription_filter_data *gf,
+		       const DetectionResultWithText &resultIn, uint64_t /*expected_generation*/)
 {
 	DetectionResultWithText result = resultIn;
 

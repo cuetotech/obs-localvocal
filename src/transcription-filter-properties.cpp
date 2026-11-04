@@ -663,6 +663,72 @@ void add_whisper_backend_group_properties(obs_properties_t *ppts,
 	obs_property_set_long_description(enable_flash_attn, MT_("enable_flash_attn_tooltip"));
 }
 
+void add_sermon_caption_properties(obs_properties_t *ppts, transcription_filter_data *gf)
+{
+	auto group = obs_properties_create();
+	obs_properties_add_group(ppts, "sermon_caption_group",
+				 "Korean sermon / readable English captions", OBS_GROUP_NORMAL,
+				 group);
+	auto preset = obs_properties_add_list(group, "sermon_preset", "Korean sermon preset",
+					      OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
+	obs_property_list_add_int(preset, "Custom settings", 0);
+	obs_property_list_add_int(preset, "Apply RTX 4070 + Google recommendations", 1);
+	obs_property_set_modified_callback2(
+		preset,
+		[](void *data, obs_properties_t *, obs_property_t *, obs_data_t *settings) {
+			if (obs_data_get_int(settings, "sermon_preset") != 1)
+				return false;
+			auto filter = static_cast<transcription_filter_data *>(data);
+			obs_data_set_bool(settings, "sermon_mode", true);
+			obs_data_set_string(settings, "whisper_language_select", "ko");
+			obs_data_set_bool(settings, "whisper_translate", false);
+			obs_data_set_bool(settings, "translate", false);
+			obs_data_set_bool(settings, "translate_cloud", true);
+			obs_data_set_string(settings, "translate_cloud_provider", "google");
+			obs_data_set_string(settings, "translate_cloud_target_language", "en");
+			obs_data_set_bool(settings, "translate_cloud_only_full_sentences", true);
+			obs_data_set_bool(settings, "buffered_output", false);
+			obs_data_set_int(settings, "vad_mode", VAD_MODE_HYBRID);
+			obs_data_set_int(settings, "segment_duration", 5000);
+			obs_data_set_bool(settings, "partial_group", true);
+			obs_data_set_int(settings, "partial_latency", 1500);
+			obs_data_set_int(settings, "english_line_chars", 42);
+			obs_data_set_int(settings, "english_reading_cps", 16);
+			obs_data_set_int(settings, "english_min_dwell", 3000);
+			obs_data_set_int(settings, "english_max_dwell", 6000);
+			obs_data_set_int(settings, "english_max_age", 10000);
+			for (size_t i = 0; i < filter->gpu_devices.size(); ++i) {
+				const std::string name = filter->gpu_devices[i].device_name;
+				if (name.find("CUDA") != std::string::npos) {
+					obs_data_set_int(settings, "backend_device",
+							 static_cast<long long>(i));
+					break;
+				}
+			}
+			obs_data_set_int(settings, "sermon_preset", 0);
+			return true;
+		},
+		gf);
+	obs_properties_add_bool(group, "sermon_mode",
+				"Readable cloud captions + bounded continuous speech");
+	obs_properties_add_int_slider(group, "english_line_chars",
+				      "English characters per line (two lines)", 24, 60, 1);
+	obs_properties_add_int_slider(group, "english_reading_cps",
+				      "Reading speed (characters/second)", 10, 25, 1);
+	obs_properties_add_int_slider(group, "english_min_dwell",
+				      "Minimum English display time (ms)", 1000, 6000, 100);
+	obs_properties_add_int_slider(group, "english_max_dwell",
+				      "Maximum English display time (ms)", 3000, 10000, 100);
+	obs_properties_add_int_slider(group, "english_max_age", "Maximum waiting age (ms)", 6000,
+				      30000, 1000);
+	obs_properties_add_text(
+		group, "sermon_info",
+		"Keeps your model and API key. Confirm Turbo V3 Q5, CUDA load logs and English output routing. "
+		"The preset is a test starting point, not a measured optimum. Full translations are not paraphrased. "
+		"Overload/expired captions are reported in the OBS log; a separate Korean/English transcript is recommended.",
+		OBS_TEXT_INFO);
+}
+
 obs_properties_t *transcription_filter_properties(void *data)
 {
 	struct transcription_filter_data *gf =
@@ -680,6 +746,7 @@ obs_properties_t *transcription_filter_properties(void *data)
 	obs_property_set_modified_callback(advanced_settings, advanced_settings_callback);
 
 	add_general_group_properties(ppts);
+	add_sermon_caption_properties(ppts, gf);
 	add_whisper_backend_group_properties(ppts, gf);
 	add_transcription_group_properties(ppts, gf);
 	add_translation_group_properties(ppts);
@@ -750,6 +817,15 @@ void transcription_filter_defaults(obs_data_t *s)
 	obs_data_set_default_int(s, "translation_max_decoding_length", 65);
 	obs_data_set_default_int(s, "translation_no_repeat_ngram_size", 1);
 	obs_data_set_default_int(s, "translation_max_input_length", 65);
+
+	// Opt-in sermon preset. Existing installations retain their chosen recognition settings.
+	obs_data_set_default_int(s, "sermon_preset", 0);
+	obs_data_set_default_bool(s, "sermon_mode", false);
+	obs_data_set_default_int(s, "english_line_chars", 42);
+	obs_data_set_default_int(s, "english_reading_cps", 16);
+	obs_data_set_default_int(s, "english_min_dwell", 3000);
+	obs_data_set_default_int(s, "english_max_dwell", 6000);
+	obs_data_set_default_int(s, "english_max_age", 10000);
 
 	// cloud translation options
 	obs_data_set_default_bool(s, "translate_cloud", false);

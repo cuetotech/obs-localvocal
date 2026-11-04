@@ -7,6 +7,8 @@
 !/cmake
 !/data
 !/src
+!/docs
+!/tests
 !/flatpak
 !.clang-format
 !.cmake-format.json

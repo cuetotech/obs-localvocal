@@ -8,6 +8,7 @@
 #include "whisper-processing.h"
 #include "plugin-support.h"
 #include "model-utils/model-downloader.h"
+#include "model-utils/model-find-utils.h"
 
 void update_whisper_model(struct transcription_filter_data *gf, bool force_whisper_restart)
 {
@@ -31,7 +32,13 @@ void update_whisper_model(struct transcription_filter_data *gf, bool force_whisp
 			? obs_data_get_string(s, "whisper_model_path_external")
 			: "";
 	const bool new_dtw_timestamps = obs_data_get_bool(s, "dtw_token_timestamps");
+	force_whisper_restart = force_whisper_restart ||
+				new_dtw_timestamps != gf->enable_token_ts_dtw;
+	gf->enable_token_ts_dtw = new_dtw_timestamps;
 	obs_data_release(s);
+
+	const auto lifetime = gf->model_callbacks;
+	const auto session = lifetime->begin(0);
 
 	// update the whisper model path
 
@@ -80,44 +87,39 @@ void update_whisper_model(struct transcription_filter_data *gf, bool force_whisp
 
 			const ModelInfo &model_info = models_info().at(new_model_path);
 
-			// check if the model exists, if not, download it
-			std::string model_file_found = find_model_bin_file(model_info);
-			if (model_file_found == "") {
-				obs_log(LOG_WARNING, "Whisper model does not exist");
-				download_model_with_ui_dialog(model_info, [gf, new_model_path,
-									   silero_vad_model_file_str,
-									   model_info](
-										  int download_status,
-										  const std::string
-											  &path) {
-					if (download_status == 0) {
-						obs_log(LOG_INFO, "Model download complete");
-						gf->whisper_model_path = new_model_path;
-						download_coreml_encoder_model_if_available(
-							model_info,
-							[gf, path, silero_vad_model_file_str]() {
+			// Verification and any transfer run on the owned download worker, including cached files.
+			download_model_with_ui_dialog(
+				model_info,
+				[lifetime, session, new_model_path, silero_vad_model_file_str,
+				 model_info](int status, const std::string &folder) {
+					if (session->load())
+						return;
+					if (status != 0) {
+						obs_log(LOG_ERROR, "Whisper model download failed");
+						return;
+					}
+					const auto path = find_model_file_in_folder(folder);
+					if (path.empty()) {
+						obs_log(LOG_ERROR,
+							"Downloaded Whisper model file missing");
+						return;
+					}
+					download_coreml_encoder_model_if_available(
+						model_info,
+						[lifetime, session, path, new_model_path,
+						 silero_vad_model_file_str] {
+							lifetime->run(session, [&](auto &owner) {
+								owner.whisper_model_path =
+									new_model_path;
 								start_whisper_thread_with_path(
-									gf, path,
+									&owner, path,
 									silero_vad_model_file_str
 										.c_str());
 							});
-					} else {
-						obs_log(LOG_ERROR, "Model download failed");
-					}
-				});
-			} else {
-				// Model exists, just load it
-				gf->whisper_model_path = new_model_path;
-
-				download_coreml_encoder_model_if_available(
-					model_info,
-					[gf, model_file_found, silero_vad_model_file_str]() {
-						start_whisper_thread_with_path(
-							gf, model_file_found,
-							silero_vad_model_file_str.c_str());
-					});
-			}
-
+						},
+						session);
+				},
+				session);
 		} else {
 			// new model is external file, get file location from file property
 			if (external_model_file_path.empty()) {
@@ -125,7 +127,8 @@ void update_whisper_model(struct transcription_filter_data *gf, bool force_whisp
 			} else {
 				// check if the external model file is not currently loaded
 				if (gf->whisper_model_file_currently_loaded ==
-				    external_model_file_path) {
+					    external_model_file_path &&
+				    !force_whisper_restart) {
 					obs_log(LOG_INFO, "External model file is already loaded");
 					return;
 				} else {
@@ -141,16 +144,6 @@ void update_whisper_model(struct transcription_filter_data *gf, bool force_whisp
 		// model path did not change
 		obs_log(gf->log_level, "Model path did not change: %s == %s",
 			gf->whisper_model_path.c_str(), new_model_path.c_str());
-
-		if (new_dtw_timestamps != gf->enable_token_ts_dtw) {
-			// dtw_token_timestamps changed
-			obs_log(gf->log_level, "dtw_token_timestamps changed from %d to %d",
-				gf->enable_token_ts_dtw, new_dtw_timestamps);
-			gf->enable_token_ts_dtw = new_dtw_timestamps;
-			shutdown_whisper_thread(gf, false);
-			start_whisper_thread_with_path(gf, gf->whisper_model_file_currently_loaded,
-						       silero_vad_model_file_str.c_str());
-		}
 
 		if (force_whisper_restart) {
 			obs_log(gf->log_level, "Restarting whisper due to force restart flag");

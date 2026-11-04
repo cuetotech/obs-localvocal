@@ -11,7 +11,7 @@ enum InputTokenizationStyle { INPUT_TOKENIZAION_M2M100 = 0, INPUT_TOKENIZAION_T5
 
 namespace ctranslate2 {
 class Translator;
-class TranslationOptions;
+struct TranslationOptions;
 } // namespace ctranslate2
 
 namespace sentencepiece {
@@ -35,7 +35,8 @@ struct translation_context {
 
 int build_translation_context(struct translation_context &translation_ctx);
 void build_and_enable_translation(struct transcription_filter_data *gf,
-				  const std::string &model_file_path);
+				  const std::string &model_file_path,
+				  const ctranslate2::TranslationOptions *options = nullptr);
 
 int translate(struct translation_context &translation_ctx, const std::string &text,
 	      const std::string &source_lang, const std::string &target_lang, std::string &result);

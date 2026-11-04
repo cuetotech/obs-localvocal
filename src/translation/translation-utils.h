@@ -3,6 +3,7 @@
 
 #include "transcription-filter-data.h"
 
-void start_translation(struct transcription_filter_data *gf);
+void start_translation(struct transcription_filter_data *gf,
+		       const ctranslate2::TranslationOptions &options);
 
 #endif // TRANSLATION_UTILS_H

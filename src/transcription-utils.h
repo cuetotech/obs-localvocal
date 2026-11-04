@@ -10,7 +10,7 @@
 // Fix UTF8 string for Windows
 std::string fix_utf8(const std::string &str);
 
-// Remove leading and trailing non-alphabetic characters
+// Trim surrounding ASCII whitespace; preserve punctuation, numbers and Unicode.
 std::string remove_leading_trailing_nonalpha(const std::string &str);
 
 // Split a string by a delimiter

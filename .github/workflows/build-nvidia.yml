@@ -3,12 +3,13 @@ name: LocalVocal Windows NVIDIA - tested translation fixes
 on:
   workflow_dispatch:
   push:
-    branches: [build/nvidia-translation-20261023]
+    branches: [build/nvidia-translation-20261023, feat/rtx4070-sermon-captions]
     paths:
       - '.github/workflows/build-nvidia.yml'
       - '.github/scripts/**'
       - 'src/**'
       - 'tests/regression/**'
+      - 'tests/download-qt/**'
       - 'cmake/**'
       - 'CMakeLists.txt'
       - 'CMakePresets.json'
@@ -61,6 +62,16 @@ jobs:
         run: |
           $env:ACCELERATION = 'nvidia'
           ./.github/scripts/Build-Windows.ps1 -Target x64 -Configuration RelWithDebInfo
+
+      - name: Test real Qt and curl download worker against local HTTP fixtures
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cmake -S . -B build_x64 -DENABLE_DOWNLOAD_TESTS=ON
+          if ($LASTEXITCODE -ne 0) { throw 'Download test configure failed' }
+          cmake --build build_x64 --config RelWithDebInfo --target localvocal_download_qt_tests
+          if ($LASTEXITCODE -ne 0) { throw 'Download test compile failed' }
+          & ./build_x64/download-tests/RelWithDebInfo/localvocal_download_qt_tests.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Download worker tests failed' }
 
       - name: Verify CUDA build selection and installed libraries
         run: |

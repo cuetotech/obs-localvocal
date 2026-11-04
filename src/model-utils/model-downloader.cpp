@@ -90,6 +90,7 @@ std::optional<std::filesystem::path> find_model_folder(const ModelInfo &model_in
 	if (!model_path.has_value()) {
 		obs_log(LOG_INFO, "Model '%s' not found.", model_info.friendly_name.c_str());
 	}
+
 	return model_path;
 }
 
@@ -104,11 +105,15 @@ std::string find_model_bin_file(const ModelInfo &model_info)
 }
 
 void download_model_with_ui_dialog(const ModelInfo &model_info,
-				   download_finished_callback_t download_finished_callback)
+				   download_finished_callback_t download_finished_callback,
+				   localvocal::DownloadCancel cancelled)
 {
+	if (cancelled && cancelled->load())
+		return;
 	// Start the model downloader UI
-	ModelDownloader *model_downloader = new ModelDownloader(
-		model_info, download_finished_callback, (QWidget *)obs_frontend_get_main_window());
+	ModelDownloader *model_downloader =
+		new ModelDownloader(model_info, download_finished_callback,
+				    (QWidget *)obs_frontend_get_main_window(), cancelled);
 	model_downloader->show();
 }
 
@@ -128,8 +133,11 @@ void symlink_coreml_model(std::filesystem::path bin_model_folder,
 
 void download_coreml_encoder_model_if_available(
 	const ModelInfo &bin_model_info,
-	coreml_model_download_finished_callback_t download_finished_callback)
+	coreml_model_download_finished_callback_t download_finished_callback,
+	localvocal::DownloadCancel cancelled)
 {
+	if (cancelled && cancelled->load())
+		return;
 #ifdef LOCALVOCAL_WITH_COREML
 	obs_log(LOG_DEBUG, "CoreML available");
 
@@ -166,93 +174,103 @@ void download_coreml_encoder_model_if_available(
 					obs_log(LOG_DEBUG,
 						"Attempting to download CoreML encoder model %s",
 						model_info.friendly_name.c_str());
-					download_model_with_ui_dialog(model_info, [model_info,
-										   bin_model_folder,
-										   download_finished_callback](
-											  int download_status,
-											  const std::string
-												  &path) {
-						if (download_status == 0) {
-							try {
-								obs_log(LOG_INFO,
-									"Downloaded CoreML model %s",
-									model_info.friendly_name
-										.c_str());
-								auto downloaded_model_folder =
-									std::filesystem::path(path);
+					download_model_with_ui_dialog(
+						model_info,
+						[model_info, bin_model_folder,
+						 download_finished_callback,
+						 cancelled](int download_status,
+							    const std::string &path) {
+							if (cancelled && cancelled->load())
+								return;
+							if (download_status == 0) {
+								try {
+									obs_log(LOG_INFO,
+										"Downloaded CoreML model %s",
+										model_info
+											.friendly_name
+											.c_str());
+									auto downloaded_model_folder =
+										std::filesystem::path(
+											path);
 
-								std::filesystem::path
-									downloaded_model_zip =
+									std::filesystem::path downloaded_model_zip =
 										std::filesystem::
 											current_path();
-								for (auto const &dir_entry :
-								     std::filesystem::directory_iterator{
-									     downloaded_model_folder}) {
-									if (dir_entry.path()
-										    .extension() ==
-									    ".zip") {
-										downloaded_model_zip =
-											dir_entry
-												.path();
-										break;
+									for (auto const &dir_entry :
+									     std::filesystem::directory_iterator{
+										     downloaded_model_folder}) {
+										if (dir_entry.path()
+											    .extension() ==
+										    ".zip") {
+											downloaded_model_zip =
+												dir_entry
+													.path();
+											break;
+										}
 									}
-								}
-								if (downloaded_model_zip ==
-								    std::filesystem::current_path()) {
-									obs_log(LOG_ERROR,
-										"zipped model not found");
-									download_finished_callback();
-									return;
-								}
+									if (downloaded_model_zip ==
+									    std::filesystem::
+										    current_path()) {
+										obs_log(LOG_ERROR,
+											"zipped model not found");
+										download_finished_callback();
+										return;
+									}
 
-								obs_log(LOG_DEBUG,
-									"zipped model: %s",
-									downloaded_model_zip
-										.c_str());
-								std::string cmd = "unzip \"";
-								cmd.append(downloaded_model_zip)
-									.append("\" -d \"")
-									.append(downloaded_model_folder)
-									.append("\"");
-								system(cmd.c_str());
+									obs_log(LOG_DEBUG,
+										"zipped model: %s",
+										downloaded_model_zip
+											.c_str());
+									std::string cmd =
+										"unzip \"";
+									cmd.append(downloaded_model_zip)
+										.append("\" -d \"")
+										.append(downloaded_model_folder)
+										.append("\"");
+									system(cmd.c_str());
 
-								auto coreml_model_name =
-									downloaded_model_zip.stem();
-								auto unzipped_model =
-									downloaded_model_folder /
-									coreml_model_name;
-								obs_log(LOG_DEBUG,
-									"unzipped model: %s",
-									unzipped_model.c_str());
-								obs_log(LOG_DEBUG,
-									"bin model folder: %s, Downloaded model folder: %s, coreml model name: %s",
-									bin_model_folder.c_str(),
-									downloaded_model_folder
-										.c_str(),
-									coreml_model_name.c_str());
-								if (std::filesystem::exists(
-									    unzipped_model)) {
-									std::filesystem::remove(
-										downloaded_model_zip);
-									symlink_coreml_model(
-										bin_model_folder,
-										downloaded_model_folder,
-										coreml_model_name);
-								} else {
+									auto coreml_model_name =
+										downloaded_model_zip
+											.stem();
+									auto unzipped_model =
+										downloaded_model_folder /
+										coreml_model_name;
+									obs_log(LOG_DEBUG,
+										"unzipped model: %s",
+										unzipped_model
+											.c_str());
+									obs_log(LOG_DEBUG,
+										"bin model folder: %s, Downloaded model folder: %s, coreml model name: %s",
+										bin_model_folder
+											.c_str(),
+										downloaded_model_folder
+											.c_str(),
+										coreml_model_name
+											.c_str());
+									if (std::filesystem::exists(
+										    unzipped_model)) {
+										std::filesystem::remove(
+											downloaded_model_zip);
+										symlink_coreml_model(
+											bin_model_folder,
+											downloaded_model_folder,
+											coreml_model_name);
+									} else {
+										obs_log(LOG_ERROR,
+											"Unzipping CoreML model failed");
+									}
+								} catch (const std::exception &e) {
 									obs_log(LOG_ERROR,
-										"Unzipping CoreML model failed");
+										"Error unpacking downloaded CoreML model: %s",
+										e.what());
 								}
-							} catch (const std::exception &e) {
+							} else {
 								obs_log(LOG_ERROR,
-									"Error unpacking downloaded CoreML model: %s",
-									e.what());
+									"CoreML model download failed");
 							}
-						} else {
-							obs_log(LOG_ERROR,
-								"CoreML model download failed");
-						}
-						download_finished_callback();
-					});
+							download_finished_callback();
+						},
+						cancelled);
 					return;
 				} else {
 					obs_log(LOG_DEBUG, "CoreML encoder model %s already exists",
