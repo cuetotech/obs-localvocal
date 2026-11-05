@@ -2,6 +2,7 @@
 #include "openai-responses.h"
 #include "translation/language_codes.h"
 #include "plugin-support.h"
+#include <obs-module.h>
 
 #include <curl/curl.h>
 #include <nlohmann/json.hpp>
@@ -127,7 +128,7 @@ std::string OpenAITranslator::translate(const std::string &text, const std::stri
 	append_header(headers, "Content-Type: application/json");
 	append_header(headers, "Authorization: Bearer " + config_.access_key);
 
-	const long request_timeout = std::max(100L, std::min(5000L, config_.timeout_ms));
+	const long request_timeout = (std::max)(100L, (std::min)(5000L, config_.timeout_ms));
 	const std::string url = "https://api.openai.com/v1/responses";
 	curl_easy_setopt(curl.get(), CURLOPT_URL, url.c_str());
 	curl_easy_setopt(curl.get(), CURLOPT_POST, 1L);
@@ -140,7 +141,7 @@ std::string OpenAITranslator::translate(const std::string &text, const std::stri
 	curl_easy_setopt(curl.get(), CURLOPT_SSL_VERIFYPEER, 1L);
 	curl_easy_setopt(curl.get(), CURLOPT_SSL_VERIFYHOST, 2L);
 	curl_easy_setopt(curl.get(), CURLOPT_NOSIGNAL, 1L);
-	curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT_MS, std::min(2000L, request_timeout));
+	curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT_MS, (std::min)(2000L, request_timeout));
 	curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT_MS, request_timeout);
 	curl_easy_setopt(curl.get(), CURLOPT_NOPROGRESS, 0L);
 	curl_easy_setopt(curl.get(), CURLOPT_XFERINFOFUNCTION, cancelled);
