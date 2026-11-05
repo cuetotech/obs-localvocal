@@ -9,6 +9,7 @@
 
 #include <atomic>
 #include <cstring>
+#include <initializer_list> // MSVC requires this for braced range-for lists.
 
 namespace {
 
