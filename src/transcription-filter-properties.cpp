@@ -52,6 +52,12 @@ bool translation_cloud_provider_selection_callback(obs_properties_t *props, obs_
 {
 	UNUSED_PARAMETER(p);
 	const char *provider = obs_data_get_string(s, "translate_cloud_provider");
+	const bool openai = strcmp(provider, "openai") == 0;
+	for (const auto &name : {"translate_cloud_openai_model",
+				 "translate_cloud_openai_context",
+				 "translate_cloud_openai_sermon_profile",
+				 "translate_cloud_openai_budget_usd"})
+		obs_property_set_visible(obs_properties_get(props, name), openai);
 	// show the access key for all except the custom provider
 	obs_property_set_visible(obs_properties_get(props, "translate_cloud_api_key"),
 				 strcmp(provider, "api") != 0);
@@ -85,7 +91,9 @@ bool translation_cloud_options_callback(obs_properties_t *props, obs_property_t 
 	      "translate_cloud_output", "translate_cloud_api_key",
 	      "translate_cloud_only_full_sentences", "translate_cloud_secret_key",
 	      "translate_cloud_deepl_free", "translate_cloud_region", "translate_cloud_endpoint",
-	      "translate_cloud_body", "translate_cloud_response_json_path"}) {
+	      "translate_cloud_body", "translate_cloud_response_json_path",
+	      "translate_cloud_openai_model", "translate_cloud_openai_context",
+	      "translate_cloud_openai_sermon_profile", "translate_cloud_openai_budget_usd"}) {
 		obs_property_set_visible(obs_properties_get(props, prop), translate_enabled);
 	}
 	if (translate_enabled) {
@@ -278,6 +286,25 @@ void add_translation_cloud_group_properties(obs_properties_t *ppts)
 	obs_property_set_modified_callback(prop_translate_cloud_provider,
 					   translation_cloud_provider_selection_callback);
 
+	// Explicitly opt in to OpenAI. Changing these settings never changes Google defaults.
+	obs_property_t *openai_model = obs_properties_add_list(
+		translation_cloud_group, "translate_cloud_openai_model", "OpenAI model",
+		OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
+	obs_property_list_add_string(openai_model, "GPT-6 Luna (lower cost)", "gpt-6-luna");
+	obs_property_list_add_string(openai_model, "GPT-6.1 Terra (quality trial)",
+				     "gpt-6.1-terra");
+	obs_property_t *openai_context = obs_properties_add_list(
+		translation_cloud_group, "translate_cloud_openai_context",
+		"Previous finalized Korean segments", OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
+	obs_property_list_add_int(openai_context, "Disabled (current sentence only)", 0);
+	obs_property_list_add_int(openai_context, "Previous 2 segments", 2);
+	obs_property_list_add_int(openai_context, "Previous 3 segments", 3);
+	obs_properties_add_bool(translation_cloud_group, "translate_cloud_openai_sermon_profile",
+				"Presbyterian Korean sermon terminology guidance");
+	obs_properties_add_float_slider(translation_cloud_group,
+		"translate_cloud_openai_budget_usd",
+		"OpenAI estimated session limit (USD; 0 = unlimited)", 0.0, 40.0, 0.5);
+
 	// add target language selection
 	obs_property_t *prop_tgt = obs_properties_add_list(
 		translation_cloud_group, "translate_cloud_target_language", MT_("target_language"),
@@ -300,7 +327,7 @@ void add_translation_cloud_group_properties(obs_properties_t *ppts)
 
 	// add input for API Key
 	obs_properties_add_text(translation_cloud_group, "translate_cloud_api_key",
-				MT_("translate_cloud_api_key"), OBS_TEXT_DEFAULT);
+				MT_("translate_cloud_api_key"), OBS_TEXT_PASSWORD);
 	// add input for secret key
 	obs_properties_add_text(translation_cloud_group, "translate_cloud_secret_key",
 				MT_("translate_cloud_secret_key"), OBS_TEXT_PASSWORD);
@@ -830,6 +857,10 @@ void transcription_filter_defaults(obs_data_t *s)
 	// cloud translation options
 	obs_data_set_default_bool(s, "translate_cloud", false);
 	obs_data_set_default_string(s, "translate_cloud_provider", "google");
+	obs_data_set_default_string(s, "translate_cloud_openai_model", "gpt-6-luna");
+	obs_data_set_default_int(s, "translate_cloud_openai_context", 0);
+	obs_data_set_default_bool(s, "translate_cloud_openai_sermon_profile", true);
+	obs_data_set_default_double(s, "translate_cloud_openai_budget_usd", 0.0);
 	obs_data_set_default_string(s, "translate_cloud_target_language", "en");
 	obs_data_set_default_string(s, "translate_cloud_output", "none");
 	obs_data_set_default_bool(s, "translate_cloud_only_full_sentences", true);
