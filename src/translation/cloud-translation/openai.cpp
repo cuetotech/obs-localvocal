@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <utility>
 #include <string>
 
 using nlohmann::json;
