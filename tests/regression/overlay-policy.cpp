@@ -50,8 +50,8 @@ int main()
 	      "cloud disabled does not change routing");
 	check(!should_default_cloud_to_english(true, "Existing English", "none"),
 	      "explicit cloud source is preserved");
-	check(!should_default_cloud_to_english(true, "none", "Korean Captions"),
-	      "explicit General fallback is preserved");
+	check(should_default_cloud_to_english(true, "none", "Korean Captions"),
+	      "Korean General output must not become cloud English output");
 	check(source_choice_unset("(null)") && !source_choice_unset("English Subtitles"),
 	      "source-choice sentinel detection");
 

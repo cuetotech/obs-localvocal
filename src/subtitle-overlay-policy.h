@@ -45,10 +45,10 @@ inline bool source_choice_unset(const char *name)
 inline bool should_default_cloud_to_english(bool cloud_enabled, const char *cloud_output,
 					    const char *general_output)
 {
-	// Respect explicit cloud or General routing; only fill a wholly unassigned
-	// cloud destination. General transcription must not write into English.
-	return cloud_enabled && source_choice_unset(cloud_output) &&
-	       source_choice_unset(general_output);
+	// An unset cloud route must never fall back to General's Korean source.
+	// Respect any explicit cloud destination. General routing is independent.
+	(void)general_output;
+	return cloud_enabled && source_choice_unset(cloud_output);
 }
 
 } // namespace localvocal
