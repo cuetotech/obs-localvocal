@@ -107,9 +107,11 @@ void send_sentence_to_cloud_translation_async(const std::string &sentence,
 	const auto source_language = result.language;
 	if (config.provider == "openai") {
 		if (result.result == DETECTION_RESULT_SPEECH) {
-			config.openai_context = gf->openai_korean_context.snapshot(
-				static_cast<size_t>(gf->openai_context_sentences));
-			gf->openai_korean_context.remember(sentence);
+			if (source_language == "ko" && gf->openai_context_sentences > 0) {
+				config.openai_context = gf->openai_korean_context.snapshot(
+					static_cast<size_t>(gf->openai_context_sentences));
+				gf->openai_korean_context.remember(sentence);
+			}
 		} else {
 			// Do not add a partial transcript to the discourse history.
 			return;
