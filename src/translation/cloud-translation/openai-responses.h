@@ -17,7 +17,7 @@ struct OpenAITokens {
 inline uint64_t token_count(const nlohmann::json &object, const char *key)
 {
 	if (!object.is_object() || !object.contains(key) ||
-	    !object[key].is_number_unsigned() && !object[key].is_number_integer())
+	    (!object[key].is_number_unsigned() && !object[key].is_number_integer()))
 		return 0;
 	const auto &value = object[key];
 	if (value.is_number_integer() && value.get<int64_t>() < 0)
