@@ -171,13 +171,3 @@ jobs:
             release/PACKAGE-MANIFEST.txt
           if-no-files-found: error
           retention-days: 30
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: LocalVocal-Windows-x64-NVIDIA-${{ github.sha }}
-          path: |
-            release/*-windows-x64-nvidia.zip
-            release/*-windows-x64-nvidia-Installer.exe
-            release/SHA256SUMS.txt
-            release/BUILDINFO.txt
-          if-no-files-found: error
-          retention-days: 30
