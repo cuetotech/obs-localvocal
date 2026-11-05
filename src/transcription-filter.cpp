@@ -30,6 +30,7 @@
 #include "whisper-utils/whisper-utils.h"
 #include "whisper-utils/whisper-params.h"
 #include "translation/language_codes.h"
+#include "translation/cloud-translation/cloud-credentials.h"
 #include "translation/translation-utils.h"
 #include "translation/translation.h"
 #include "translation/translation-includes.h"
@@ -559,10 +560,24 @@ void transcription_filter_update(void *data, obs_data_t *s)
 			*gf->translation_ctx.options = translation_options;
 	}
 
+	// One-time migration of the old shared cloud key to the provider that
+	// actually owned it. Keep legacy key for older plugin builds/other providers.
+	// Do not re-migrate when the user later changes providers.
+	if (!obs_data_get_bool(s, "translate_cloud_credentials_migrated")) {
+		const std::string old_provider = obs_data_get_string(s, "translate_cloud_provider");
+		const std::string old_key = obs_data_get_string(s, localvocal::cloud_key_setting(
+				gf->translate_cloud_config.provider));
+		const char *key_setting = localvocal::dedicated_cloud_key_setting(old_provider);
+		if (key_setting && !obs_data_has_user_value(s, key_setting) && !old_key.empty())
+			obs_data_set_string(s, key_setting, old_key.c_str());
+		obs_data_set_bool(s, "translate_cloud_credentials_migrated", true);
+	}
+
 	{
 		std::lock_guard<std::mutex> cloud_lock(gf->cloud_mutex);
 		gf->cloud_pipeline.reset();
-		gf->openai_korean_context.clear();
+		gf->openai_speech_context.clear();
+		gf->openai_context_source_language.clear();
 		gf->sermon_mode = obs_data_get_bool(s, "sermon_mode");
 		gf->cloud_caption_options.readable = gf->sermon_mode;
 		gf->cloud_caption_options.line_chars = static_cast<size_t>(

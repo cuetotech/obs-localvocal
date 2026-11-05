@@ -12,6 +12,7 @@
 #include "whisper-utils/whisper-params.h"
 #include "model-utils/model-downloader-types.h"
 #include "translation/language_codes.h"
+#include "translation/language-shortlist.h"
 #include "ui/filter-replace-dialog.h"
 #include "ui/filter-replace-utils.h"
 
@@ -58,9 +59,14 @@ bool translation_cloud_provider_selection_callback(obs_properties_t *props, obs_
 				 "translate_cloud_openai_sermon_profile",
 				 "translate_cloud_openai_budget_usd"})
 		obs_property_set_visible(obs_properties_get(props, name), openai);
-	// show the access key for all except the custom provider
+	// Dedicated keys stay in separate OBS settings while switching providers.
+	const bool google = strcmp(provider, "google") == 0;
+	obs_property_set_visible(obs_properties_get(props, "translate_cloud_google_api_key"),
+				 google);
+	obs_property_set_visible(obs_properties_get(props, "translate_cloud_openai_api_key"),
+				 openai);
 	obs_property_set_visible(obs_properties_get(props, "translate_cloud_api_key"),
-				 strcmp(provider, "api") != 0);
+				 !google && !openai && strcmp(provider, "api") != 0);
 	obs_property_set_visible(obs_properties_get(props, "translate_cloud_deepl_free"),
 				 strcmp(provider, "deepl") == 0);
 	// show the secret key input for the papago provider only
@@ -89,6 +95,7 @@ bool translation_cloud_options_callback(obs_properties_t *props, obs_property_t 
 	for (const auto &prop :
 	     {"translate_cloud_provider", "translate_cloud_target_language",
 	      "translate_cloud_output", "translate_cloud_api_key",
+	      "translate_cloud_google_api_key", "translate_cloud_openai_api_key",
 	      "translate_cloud_only_full_sentences", "translate_cloud_secret_key",
 	      "translate_cloud_deepl_free", "translate_cloud_region", "translate_cloud_endpoint",
 	      "translate_cloud_body", "translate_cloud_response_json_path",
@@ -168,13 +175,14 @@ bool external_model_file_selection(void *data_, obs_properties_t *props, obs_pro
 			// set the language to english
 			obs_data_set_string(settings, "whisper_language_select", "en");
 		} else {
-			// add all the languages
-			for (const auto &lang : whisper_available_lang) {
-				obs_property_list_add_string(prop_lang, lang.second.c_str(),
-							     lang.first.c_str());
-			}
-			// set the language to auto (default)
-			obs_data_set_string(settings, "whisper_language_select", "auto");
+			obs_property_list_add_string(prop_lang, "Auto detect", "auto");
+			for (const auto &language : localvocal::short_language_choices())
+				obs_property_list_add_string(prop_lang, language.name,
+							     language.whisper_code);
+			const std::string current = obs_data_get_string(settings,
+							     "whisper_language_select");
+			if (!localvocal::is_short_source_language(current))
+				obs_data_set_string(settings, "whisper_language_select", "auto");
 		}
 		gf_->whisper_model_loaded_new = false;
 	}
@@ -295,7 +303,7 @@ void add_translation_cloud_group_properties(obs_properties_t *ppts)
 				     "gpt-6.1-terra");
 	obs_property_t *openai_context = obs_properties_add_list(
 		translation_cloud_group, "translate_cloud_openai_context",
-		"Previous finalized Korean segments", OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
+		"Previous finalized source-language segments", OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
 	obs_property_list_add_int(openai_context, "Disabled (current sentence only)", 0);
 	obs_property_list_add_int(openai_context, "Previous 2 segments", 2);
 	obs_property_list_add_int(openai_context, "Previous 3 segments", 3);
@@ -309,11 +317,9 @@ void add_translation_cloud_group_properties(obs_properties_t *ppts)
 	obs_property_t *prop_tgt = obs_properties_add_list(
 		translation_cloud_group, "translate_cloud_target_language", MT_("target_language"),
 		OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
-	// Populate the dropdown with the language codes
-	for (const auto &language : language_codes) {
-		obs_property_list_add_string(prop_tgt, language.second.c_str(),
-					     language.first.c_str());
-	}
+	// Compact operator language list; preserve existing engine language mappings.
+	for (const auto &language : localvocal::short_language_choices())
+		obs_property_list_add_string(prop_tgt, language.name, language.cloud_code);
 	// add option for routing the translation to an output source
 	obs_property_t *prop_output = obs_properties_add_list(
 		translation_cloud_group, "translate_cloud_output", MT_("translate_output"),
@@ -325,9 +331,14 @@ void add_translation_cloud_group_properties(obs_properties_t *ppts)
 	obs_properties_add_bool(translation_cloud_group, "translate_cloud_only_full_sentences",
 				MT_("translate_cloud_only_full_sentences"));
 
-	// add input for API Key
+	// Keep provider credentials separate. OBS portable profiles still save
+	// these values; the display masking does not encrypt the configuration.
+	obs_properties_add_text(translation_cloud_group, "translate_cloud_google_api_key",
+				"Google Cloud API key (saved separately)", OBS_TEXT_PASSWORD);
+	obs_properties_add_text(translation_cloud_group, "translate_cloud_openai_api_key",
+				"OpenAI API key (saved separately)", OBS_TEXT_PASSWORD);
 	obs_properties_add_text(translation_cloud_group, "translate_cloud_api_key",
-				MT_("translate_cloud_api_key"), OBS_TEXT_PASSWORD);
+				"Other provider API key (legacy)", OBS_TEXT_PASSWORD);
 	// add input for secret key
 	obs_properties_add_text(translation_cloud_group, "translate_cloud_secret_key",
 				MT_("translate_cloud_secret_key"), OBS_TEXT_PASSWORD);
@@ -400,11 +411,8 @@ void add_translation_group_properties(obs_properties_t *ppts)
 	obs_properties_add_bool(translation_group, "translate_only_full_sentences",
 				MT_("translate_only_full_sentences"));
 
-	// Populate the dropdown with the language codes
-	for (const auto &language : language_codes) {
-		obs_property_list_add_string(prop_tgt, language.second.c_str(),
-					     language.first.c_str());
-	}
+	for (const auto &language : localvocal::short_language_choices())
+		obs_property_list_add_string(prop_tgt, language.name, language.local_code);
 	// add option for routing the translation to an output source
 	obs_property_t *prop_output = obs_properties_add_list(translation_group, "translate_output",
 							      MT_("translate_output"),
@@ -467,12 +475,9 @@ void add_webvtt_group_properties(obs_properties_t *ppts)
 			webvtt_group, name_buffer->array, description_buffer->array,
 			OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
 		obs_property_list_add_string(language_select, "None", "");
-		for (auto const &pair : whisper_available_lang_reverse) {
-			if (pair.second == "auto")
-				continue;
-			obs_property_list_add_string(language_select, pair.first.c_str(),
-						     pair.second.c_str());
-		}
+		for (const auto &language : localvocal::short_language_choices())
+			obs_property_list_add_string(language_select, language.name,
+						     language.whisper_code);
 	}
 }
 #endif
@@ -640,11 +645,10 @@ void add_general_group_properties(obs_properties_t *ppts)
 	obs_property_t *whisper_language_select_list =
 		obs_properties_add_list(general_group, "whisper_language_select", MT_("language"),
 					OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
-	// iterate over all available languages and add them to the list
-	for (auto const &pair : whisper_available_lang_reverse) {
-		obs_property_list_add_string(whisper_language_select_list, pair.first.c_str(),
-					     pair.second.c_str());
-	}
+	obs_property_list_add_string(whisper_language_select_list, "Auto detect", "auto");
+	for (const auto &language : localvocal::short_language_choices())
+		obs_property_list_add_string(whisper_language_select_list, language.name,
+					     language.whisper_code);
 }
 
 void add_partial_group_properties(obs_properties_t *ppts)
@@ -857,6 +861,9 @@ void transcription_filter_defaults(obs_data_t *s)
 	// cloud translation options
 	obs_data_set_default_bool(s, "translate_cloud", false);
 	obs_data_set_default_string(s, "translate_cloud_provider", "google");
+	obs_data_set_default_bool(s, "translate_cloud_credentials_migrated", false);
+	obs_data_set_default_string(s, "translate_cloud_google_api_key", "");
+	obs_data_set_default_string(s, "translate_cloud_openai_api_key", "");
 	obs_data_set_default_string(s, "translate_cloud_openai_model", "gpt-6-luna");
 	obs_data_set_default_int(s, "translate_cloud_openai_context", 0);
 	obs_data_set_default_bool(s, "translate_cloud_openai_sermon_profile", true);

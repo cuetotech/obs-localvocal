@@ -10,7 +10,7 @@ namespace localvocal {
 
 // Finalized Korean recognition is the only input. A snapshot is attached to each
 // translation request before the current utterance is remembered.
-class RollingKoreanContext {
+class RollingSpeechContext {
 public:
 	void clear() { sentences_.clear(); }
 
@@ -53,5 +53,7 @@ public:
 private:
 	std::deque<std::string> sentences_;
 };
+
+using RollingKoreanContext = RollingSpeechContext; // Compatibility with existing tests.
 
 } // namespace localvocal

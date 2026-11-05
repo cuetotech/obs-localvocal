@@ -66,7 +66,7 @@ std::string OpenAITranslator::instructions(const std::string &target_lang,
 		"only when it establishes the referent, and do not invent certainty. "
 		"Do not explain, summarize, paraphrase, embellish, censor or add content. "
 		"Return only the translation of NEW_SOURCE_TEXT in the target language, without a label.";
-	if (config_.openai_sermon_profile && source_lang == "ko")
+	if (config_.openai_sermon_profile)
 		prompt +=
 			" Context: a Presbyterian pastor is addressing a Korean-speaking "
 			"congregation and discussing Scripture, biblical figures and theology. "

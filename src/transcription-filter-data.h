@@ -190,7 +190,8 @@ struct transcription_filter_data {
 	// Cloud translation options
 	bool translate_cloud = false;
 	CloudTranslatorConfig translate_cloud_config;
-	localvocal::RollingKoreanContext openai_korean_context;
+	localvocal::RollingSpeechContext openai_speech_context;
+	std::string openai_context_source_language;
 	int openai_context_sentences = 0;
 	std::shared_ptr<OpenAIUsageTracker> openai_usage =
 		std::make_shared<OpenAIUsageTracker>();
