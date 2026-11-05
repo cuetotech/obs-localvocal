@@ -105,6 +105,16 @@ void send_sentence_to_cloud_translation_async(const std::string &sentence,
 	auto config = gf->translate_cloud_config;
 	const auto target_language = gf->translate_cloud_target_language;
 	const auto source_language = result.language;
+	if (config.provider == "openai") {
+		if (result.result == DETECTION_RESULT_SPEECH) {
+			config.openai_context = gf->openai_korean_context.snapshot(
+				static_cast<size_t>(gf->openai_context_sentences));
+			gf->openai_korean_context.remember(sentence);
+		} else {
+			// Do not add a partial transcript to the discourse history.
+			return;
+		}
+	}
 	const auto output = gf->translate_cloud_output.empty() ? gf->text_source_name
 							       : gf->translate_cloud_output;
 	auto source = obs_get_source_by_name(output.c_str());
@@ -775,8 +785,10 @@ void clear_current_caption(transcription_filter_data *gf_, bool reset_cloud)
 		const auto cloud_output = gf_->translate_cloud_output.empty()
 						  ? gf_->text_source_name
 						  : gf_->translate_cloud_output;
-		if (reset_cloud)
+		if (reset_cloud) {
 			gf_->cloud_pipeline.reset();
+			gf_->openai_korean_context.clear();
+		}
 		if (reset_cloud || !gf_->translate_cloud || gf_->text_source_name != cloud_output)
 			send_caption_to_source(gf_->text_source_name, "", gf_);
 		if (reset_cloud || !gf_->translate_cloud || gf_->translation_output != cloud_output)
