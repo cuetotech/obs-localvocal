@@ -51,14 +51,17 @@ unchanged. Selecting OpenAI requires an explicit provider change and API key.
    `English Subtitles` Text (GDI+) source and **Only full sentences** on.
    Keep local Whisper translation disabled, Korean source separate,
    and the existing `Subtitles Overlay` scene / F7/F8 hotkeys.
-7. To limit local costs, set **OpenAI estimated session limit (USD)** to a
+7. **Visibility is not billing control:** F8 hides the shared subtitle overlay but
+   does not stop Whisper or OpenAI requests. To pause spending outside sermon
+   periods, disable **Cloud Translation** explicitly, then re-enable for sermon.
+8. To limit local costs, set **OpenAI estimated session limit (USD)** to a
    small nonzero amount during testing (e.g. $2). This uses **observed
    response token usage**, applies to requests from this one LocalVocal
    filter until OBS restarts, and stops new requests once observed estimated
    spend reaches the threshold. It is **not** a guaranteed OpenAI account
    billing cap, not synchronized across API projects, and may be exceeded
    by an in-flight call. Also configure limits in the API Platform.
-8. Record one authorized Korean sermon excerpt with biblical names, clear
+9. Record one authorized Korean sermon excerpt with biblical names, clear
    quotations, subject omission and rapid continuous speech. Compare
    Google, Luna, and Terra on this identical recording, not anecdotes
    from different Sundays. Check actual p50/p95 first-visible English,
