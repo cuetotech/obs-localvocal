@@ -35,9 +35,7 @@ std::unique_ptr<ITranslator> createTranslator(const CloudTranslatorConfig &confi
 			config.access_key,
 			config.model.empty() ? "claude-3-sonnet-20240229" : config.model);
 	} else if (config.provider == "openai") {
-		return std::make_unique<OpenAITranslator>(
-			config.access_key,
-			config.model.empty() ? "gpt-4-turbo-preview" : config.model);
+		return std::make_unique<OpenAITranslator>(config);
 	} else if (config.provider == "api") {
 		return std::make_unique<CustomApiTranslator>(config.endpoint, config.body,
 							     config.response_json_path);
