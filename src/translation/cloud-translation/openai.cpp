@@ -64,7 +64,7 @@ std::string OpenAITranslator::instructions(const std::string &target_lang,
 		"the source. Korean often omits subjects; use preceding source context "
 		"only when it establishes the referent, and do not invent certainty. "
 		"Do not explain, summarize, paraphrase, embellish, censor or add content. "
-		"Return only the English translation of NEW_SOURCE_TEXT, without a label.";
+		"Return only the translation of NEW_SOURCE_TEXT in the target language, without a label.";
 	if (config_.openai_sermon_profile && source_lang == "ko")
 		prompt +=
 			" Context: a Presbyterian pastor is addressing a Korean-speaking "
