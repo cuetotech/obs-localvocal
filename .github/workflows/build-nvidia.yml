@@ -63,6 +63,16 @@ jobs:
           $env:ACCELERATION = 'nvidia'
           ./.github/scripts/Build-Windows.ps1 -Target x64 -Configuration RelWithDebInfo
 
+      - name: Verify Responses API typed output and usage contract
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cmake -S . -B build_x64 -DENABLE_RESPONSE_TESTS=ON
+          if ($LASTEXITCODE -ne 0) { throw 'Responses parser configure failed' }
+          cmake --build build_x64 --config RelWithDebInfo --target localvocal_openai_response_tests
+          if ($LASTEXITCODE -ne 0) { throw 'Responses parser compile failed' }
+          & ./build_x64/tests/responses/RelWithDebInfo/localvocal_openai_response_tests.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Responses parser fixture tests failed' }
+
       - name: Test real Qt and curl download worker against local HTTP fixtures
         run: |
           $ErrorActionPreference = 'Stop'
