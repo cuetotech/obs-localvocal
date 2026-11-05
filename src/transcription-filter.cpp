@@ -611,9 +611,11 @@ void transcription_filter_update(void *data, obs_data_t *s)
 					  gf->translate_cloud_output, gf);
 		gf->translate_cloud_only_full_sentences =
 			obs_data_get_bool(s, "translate_cloud_only_full_sentences");
-		gf->translate_cloud_config.access_key =
-			obs_data_get_string(s, localvocal::cloud_key_setting(
-				gf->translate_cloud_config.provider));
+		gf->translate_cloud_config.access_key = localvocal::selected_cloud_api_key(
+			gf->translate_cloud_config.provider,
+			obs_data_get_string(s, "translate_cloud_google_api_key"),
+			obs_data_get_string(s, "translate_cloud_openai_api_key"),
+			obs_data_get_string(s, "translate_cloud_api_key"));
 		gf->translate_cloud_config.secret_key =
 			obs_data_get_string(s, "translate_cloud_secret_key");
 		gf->translate_cloud_config.free =
