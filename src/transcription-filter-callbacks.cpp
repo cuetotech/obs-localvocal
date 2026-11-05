@@ -105,6 +105,19 @@ void send_sentence_to_cloud_translation_async(const std::string &sentence,
 	auto config = gf->translate_cloud_config;
 	const auto target_language = gf->translate_cloud_target_language;
 	const auto source_language = result.language;
+	if (config.provider == "openai") {
+		if (result.result != DETECTION_RESULT_SPEECH)
+			return; // Finalized utterances only; never pollute discourse with partials.
+		if (gf->openai_context_sentences > 0) {
+			if (gf->openai_context_source_language != source_language) {
+				gf->openai_speech_context.clear();
+				gf->openai_context_source_language = source_language;
+			}
+			config.openai_context = gf->openai_speech_context.snapshot(
+				static_cast<size_t>(gf->openai_context_sentences));
+			gf->openai_speech_context.remember(sentence);
+		}
+	}
 	const auto output = gf->translate_cloud_output.empty() ? gf->text_source_name
 							       : gf->translate_cloud_output;
 	auto source = obs_get_source_by_name(output.c_str());
@@ -775,8 +788,11 @@ void clear_current_caption(transcription_filter_data *gf_, bool reset_cloud)
 		const auto cloud_output = gf_->translate_cloud_output.empty()
 						  ? gf_->text_source_name
 						  : gf_->translate_cloud_output;
-		if (reset_cloud)
+		if (reset_cloud) {
 			gf_->cloud_pipeline.reset();
+			gf_->openai_speech_context.clear();
+			gf_->openai_context_source_language.clear();
+		}
 		if (reset_cloud || !gf_->translate_cloud || gf_->text_source_name != cloud_output)
 			send_caption_to_source(gf_->text_source_name, "", gf_);
 		if (reset_cloud || !gf_->translate_cloud || gf_->translation_output != cloud_output)

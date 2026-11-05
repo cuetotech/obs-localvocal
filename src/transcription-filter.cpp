@@ -22,6 +22,7 @@
 #include "transcription-filter-callbacks.h"
 #include "transcription-filter-data.h"
 #include "transcription-filter-utils.h"
+#include "subtitle-overlay-policy.h"
 #include "transcription-utils.h"
 #include "model-utils/model-downloader.h"
 #include "whisper-utils/whisper-processing.h"
@@ -30,6 +31,7 @@
 #include "whisper-utils/whisper-utils.h"
 #include "whisper-utils/whisper-params.h"
 #include "translation/language_codes.h"
+#include "translation/cloud-translation/cloud-credentials.h"
 #include "translation/translation-utils.h"
 #include "translation/translation.h"
 #include "translation/translation-includes.h"
@@ -559,9 +561,23 @@ void transcription_filter_update(void *data, obs_data_t *s)
 			*gf->translation_ctx.options = translation_options;
 	}
 
+	// One-time migration of the old shared cloud key to the provider that
+	// actually owned it. Keep legacy key for older plugin builds/other providers.
+	// Do not re-migrate when the user later changes providers.
+	if (!obs_data_get_bool(s, "translate_cloud_credentials_migrated")) {
+		const std::string old_provider = obs_data_get_string(s, "translate_cloud_provider");
+		const std::string old_key = obs_data_get_string(s, "translate_cloud_api_key");
+		const char *key_setting = localvocal::dedicated_cloud_key_setting(old_provider);
+		if (key_setting && !obs_data_has_user_value(s, key_setting) && !old_key.empty())
+			obs_data_set_string(s, key_setting, old_key.c_str());
+		obs_data_set_bool(s, "translate_cloud_credentials_migrated", true);
+	}
+
 	{
 		std::lock_guard<std::mutex> cloud_lock(gf->cloud_mutex);
 		gf->cloud_pipeline.reset();
+		gf->openai_speech_context.clear();
+		gf->openai_context_source_language.clear();
 		gf->sermon_mode = obs_data_get_bool(s, "sermon_mode");
 		gf->cloud_caption_options.readable = gf->sermon_mode;
 		gf->cloud_caption_options.line_chars = static_cast<size_t>(
@@ -580,14 +596,27 @@ void transcription_filter_update(void *data, obs_data_t *s)
 		gf->translate_cloud = obs_data_get_bool(s, "translate_cloud");
 		gf->translate_cloud_config.provider =
 			obs_data_get_string(s, "translate_cloud_provider");
+		gf->translate_cloud_config.model =
+			obs_data_get_string(s, "translate_cloud_openai_model");
+		gf->openai_context_sentences = static_cast<int>(std::clamp<long long>(
+			obs_data_get_int(s, "translate_cloud_openai_context"), 0, 3));
+		gf->translate_cloud_config.openai_sermon_profile =
+			obs_data_get_bool(s, "translate_cloud_openai_sermon_profile");
+		gf->translate_cloud_config.openai_session_limit_usd =
+			std::clamp(obs_data_get_double(s, "translate_cloud_openai_budget_usd"),
+				   0.0, 40.0);
+		gf->translate_cloud_config.openai_usage = gf->openai_usage;
 		gf->translate_cloud_target_language =
 			obs_data_get_string(s, "translate_cloud_target_language");
 		text_output_source_update(obs_data_get_string(s, "translate_cloud_output"),
 					  gf->translate_cloud_output, gf);
 		gf->translate_cloud_only_full_sentences =
 			obs_data_get_bool(s, "translate_cloud_only_full_sentences");
-		gf->translate_cloud_config.access_key =
-			obs_data_get_string(s, "translate_cloud_api_key");
+		gf->translate_cloud_config.access_key = localvocal::selected_cloud_api_key(
+			gf->translate_cloud_config.provider,
+			obs_data_get_string(s, "translate_cloud_google_api_key"),
+			obs_data_get_string(s, "translate_cloud_openai_api_key"),
+			obs_data_get_string(s, "translate_cloud_api_key"));
 		gf->translate_cloud_config.secret_key =
 			obs_data_get_string(s, "translate_cloud_secret_key");
 		gf->translate_cloud_config.free =
@@ -759,16 +788,19 @@ void *transcription_filter_create(obs_data_t *settings, obs_source_t *filter)
 		return nullptr;
 	}
 
-	obs_log(gf->log_level, "clear text source data");
+	obs_log(gf->log_level, "select existing text source routing");
 	const char *subtitle_sources = obs_data_get_string(settings, "subtitle_sources");
-	if (subtitle_sources == nullptr || strlen(subtitle_sources) == 0 ||
-	    strcmp(subtitle_sources, "none") == 0 || strcmp(subtitle_sources, "(null)") == 0) {
-		obs_log(gf->log_level, "Create text source");
-		gf->text_source_name = "LocalVocal Subtitles";
-		obs_data_set_string(settings, "subtitle_sources", "LocalVocal Subtitles");
+	if (localvocal::source_choice_unset(subtitle_sources)) {
+		// No General output means no second Korean GDI+ source.
+		gf->text_source_name.clear();
 	} else {
-		// set the text source name
 		gf->text_source_name = subtitle_sources;
+	}
+	if (localvocal::should_default_cloud_to_english(
+		    obs_data_get_bool(settings, "translate_cloud"),
+		    obs_data_get_string(settings, "translate_cloud_output"), subtitle_sources)) {
+		obs_data_set_string(settings, "translate_cloud_output",
+				    localvocal::kEnglishSubtitlesSource);
 	}
 	create_obs_text_source_if_needed();
 	obs_log(gf->log_level, "clear paths and whisper context");

@@ -3,7 +3,7 @@ name: LocalVocal Windows NVIDIA - tested translation fixes
 on:
   workflow_dispatch:
   push:
-    branches: [build/nvidia-translation-20261023, feat/rtx4070-sermon-captions]
+    branches: [build/nvidia-translation-20261023, feat/rtx4070-sermon-captions, feat/openai-responses-contextual-sermons]
     paths:
       - '.github/workflows/build-nvidia.yml'
       - '.github/scripts/**'
@@ -63,6 +63,16 @@ jobs:
           $env:ACCELERATION = 'nvidia'
           ./.github/scripts/Build-Windows.ps1 -Target x64 -Configuration RelWithDebInfo
 
+      - name: Verify Responses API typed output and usage contract
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cmake -S . -B build_x64 -DENABLE_RESPONSE_TESTS=ON
+          if ($LASTEXITCODE -ne 0) { throw 'Responses parser configure failed' }
+          cmake --build build_x64 --config RelWithDebInfo --target localvocal_openai_response_tests
+          if ($LASTEXITCODE -ne 0) { throw 'Responses parser compile failed' }
+          & ./build_x64/tests/responses/RelWithDebInfo/localvocal_openai_response_tests.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Responses parser fixture tests failed' }
+
       - name: Test real Qt and curl download worker against local HTTP fixtures
         run: |
           $ErrorActionPreference = 'Stop'
@@ -109,14 +119,55 @@ jobs:
             'CUDA build selection and DLL presence checked; GPU inference and OBS runtime NOT tested by CI.'
           ) | Set-Content release/BUILDINFO.txt -Encoding utf8
 
-      - name: Upload NVIDIA packages
+      - name: Audit model payload and individual package sizes
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $spec = Get-Content -Raw buildspec.json | ConvertFrom-Json
+          $base = "release/$($spec.name)-$($spec.version)-windows-x64-nvidia"
+          $portable = Get-Item "$base.zip"
+          $installer = Get-Item "$base-Installer.exe"
+          $models = @(Get-ChildItem release/RelWithDebInfo -Recurse -File -Filter '*.bin')
+          $turbo = @($models | Where-Object { $_.Name -match '(?i)large-v3-turbo' })
+          if ($turbo.Count -ne 0) { throw "Unexpected bundled Whisper Turbo model weights" }
+          $largest = @(Get-ChildItem release/RelWithDebInfo -Recurse -File |
+            Sort-Object Length -Descending | Select-Object -First 12)
+          $lines = @(
+            "Source: $env:GITHUB_SHA",
+            "Portable ZIP: $($portable.Length) bytes ($([math]::Round($portable.Length / 1MB, 1)) MiB)",
+            "Installer EXE: $($installer.Length) bytes ($([math]::Round($installer.Length / 1MB, 1)) MiB)",
+            'Bundled model .bin files (non-Turbo):'
+          )
+          foreach ($model in $models) {
+            $lines += "  $($model.Name): $($model.Length) bytes"
+          }
+          $lines += 'Largest installed files:'
+          foreach ($file in $largest) {
+            $lines += "  $($file.Name): $($file.Length) bytes"
+          }
+          $lines += 'Turbo V3 weights not bundled; separate on-demand download.'
+          $lines | Set-Content release/PACKAGE-MANIFEST.txt -Encoding utf8
+          $lines | Write-Output
+
+      - name: Upload portable NVIDIA ZIP
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: LocalVocal-Windows-x64-NVIDIA-${{ github.sha }}
+          name: LocalVocal-Portable-NVIDIA-${{ github.sha }}
           path: |
             release/*-windows-x64-nvidia.zip
+            release/SHA256SUMS.txt
+            release/BUILDINFO.txt
+            release/PACKAGE-MANIFEST.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload Windows NVIDIA installer
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: LocalVocal-Installer-NVIDIA-${{ github.sha }}
+          path: |
             release/*-windows-x64-nvidia-Installer.exe
             release/SHA256SUMS.txt
             release/BUILDINFO.txt
+            release/PACKAGE-MANIFEST.txt
           if-no-files-found: error
           retention-days: 30
