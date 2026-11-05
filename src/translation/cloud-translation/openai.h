@@ -13,6 +13,7 @@ public:
 			      const std::string &source_lang = "auto") override;
 
 private:
-	std::string instructions(const std::string &target_lang) const;
+	std::string instructions(const std::string &target_lang,
+			 const std::string &source_lang) const;
 	CloudTranslatorConfig config_;
 };
