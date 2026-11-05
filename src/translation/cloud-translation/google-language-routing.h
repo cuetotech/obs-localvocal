@@ -1,5 +1,6 @@
 #pragma once
 
+#include <ctype.h> // ITranslator uses the C isalpha helper.
 #include "ITranslator.h"
 
 #include <string>

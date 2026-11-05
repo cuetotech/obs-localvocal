@@ -43,7 +43,13 @@ consistent results. Any source-model or language settings change should be
 tested privately before streaming.
 
 For Google, translation remains sentence-oriented; the same Google API key is
-reused on both directions. For OpenAI, the optional rolling context now tracks
+reused on both directions. The Basic v2 request explicitly sends `source=en`
+and `target=ko` for English speech → Korean captions, or `source=ko`
+and `target=en` for Korean speech → English captions. The Google path is
+not restricted to sermons or one language direction. The corresponding
+regression target `google_cloud_language_directions` checks both requests
+without accessing a paid API; a real OBS + Google API key smoke test remains
+a separate acceptance requirement. For OpenAI, the optional rolling context now tracks
 finalized segments in the **current source language**, Korean **or English**,
 and resets when the detected source language changes. Select 0/2/3 prior
 segments. The model translates only the current segment.
