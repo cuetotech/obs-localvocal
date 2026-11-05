@@ -562,6 +562,7 @@ void transcription_filter_update(void *data, obs_data_t *s)
 	{
 		std::lock_guard<std::mutex> cloud_lock(gf->cloud_mutex);
 		gf->cloud_pipeline.reset();
+		gf->openai_korean_context.clear();
 		gf->sermon_mode = obs_data_get_bool(s, "sermon_mode");
 		gf->cloud_caption_options.readable = gf->sermon_mode;
 		gf->cloud_caption_options.line_chars = static_cast<size_t>(
@@ -580,6 +581,16 @@ void transcription_filter_update(void *data, obs_data_t *s)
 		gf->translate_cloud = obs_data_get_bool(s, "translate_cloud");
 		gf->translate_cloud_config.provider =
 			obs_data_get_string(s, "translate_cloud_provider");
+		gf->translate_cloud_config.model =
+			obs_data_get_string(s, "translate_cloud_openai_model");
+		gf->openai_context_sentences = static_cast<int>(std::clamp<long long>(
+			obs_data_get_int(s, "translate_cloud_openai_context"), 0, 3));
+		gf->translate_cloud_config.openai_sermon_profile =
+			obs_data_get_bool(s, "translate_cloud_openai_sermon_profile");
+		gf->translate_cloud_config.openai_session_limit_usd =
+			std::clamp(obs_data_get_double(s, "translate_cloud_openai_budget_usd"),
+				   0.0, 40.0);
+		gf->translate_cloud_config.openai_usage = gf->openai_usage;
 		gf->translate_cloud_target_language =
 			obs_data_get_string(s, "translate_cloud_target_language");
 		text_output_source_update(obs_data_get_string(s, "translate_cloud_output"),
