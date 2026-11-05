@@ -565,8 +565,7 @@ void transcription_filter_update(void *data, obs_data_t *s)
 	// Do not re-migrate when the user later changes providers.
 	if (!obs_data_get_bool(s, "translate_cloud_credentials_migrated")) {
 		const std::string old_provider = obs_data_get_string(s, "translate_cloud_provider");
-		const std::string old_key = obs_data_get_string(s, localvocal::cloud_key_setting(
-				gf->translate_cloud_config.provider));
+		const std::string old_key = obs_data_get_string(s, "translate_cloud_api_key");
 		const char *key_setting = localvocal::dedicated_cloud_key_setting(old_provider);
 		if (key_setting && !obs_data_has_user_value(s, key_setting) && !old_key.empty())
 			obs_data_set_string(s, key_setting, old_key.c_str());
@@ -613,7 +612,8 @@ void transcription_filter_update(void *data, obs_data_t *s)
 		gf->translate_cloud_only_full_sentences =
 			obs_data_get_bool(s, "translate_cloud_only_full_sentences");
 		gf->translate_cloud_config.access_key =
-			obs_data_get_string(s, "translate_cloud_api_key");
+			obs_data_get_string(s, localvocal::cloud_key_setting(
+				gf->translate_cloud_config.provider));
 		gf->translate_cloud_config.secret_key =
 			obs_data_get_string(s, "translate_cloud_secret_key");
 		gf->translate_cloud_config.free =
