@@ -25,6 +25,7 @@
 #include "whisper-utils/whisper-processing.h"
 #include "whisper-utils/token-buffer-thread.h"
 #include "translation/cloud-translation/translation-cloud.h"
+#include "translation/cloud-translation/sermon-context.h"
 #include "captions/cloud-caption-pipeline.h"
 #include "model-utils/download-safety.h"
 
@@ -189,6 +190,11 @@ struct transcription_filter_data {
 	// Cloud translation options
 	bool translate_cloud = false;
 	CloudTranslatorConfig translate_cloud_config;
+	localvocal::RollingSpeechContext openai_speech_context;
+	std::string openai_context_source_language;
+	int openai_context_sentences = 0;
+	std::shared_ptr<OpenAIUsageTracker> openai_usage =
+		std::make_shared<OpenAIUsageTracker>();
 	std::string translate_cloud_target_language;
 	std::string translate_cloud_output;
 	bool translate_cloud_only_full_sentences = true;

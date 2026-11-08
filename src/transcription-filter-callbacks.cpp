@@ -16,6 +16,9 @@
 #include <filesystem>
 
 #include "transcription-filter-callbacks.h"
+#include "subtitle-overlay-policy.h"
+#include "translation-hotkeys.h"
+#include "translation-hotkey-policy.h"
 #include "transcription-utils.h"
 #include "translation/translation.h"
 #include "translation/translation-includes.h"
@@ -100,13 +103,34 @@ void send_sentence_to_cloud_translation_async(const std::string &sentence,
 					      uint64_t possible_end_ts)
 {
 	std::lock_guard<std::mutex> lock(gf->cloud_mutex);
-	if (!gf->translate_cloud || sentence.empty())
+	// F7 blocks new submissions while F8 resumes without resetting Whisper.
+	// The cloud mutex serializes this gate with pending-caption invalidation.
+	if (!localvocal::cloud_submission_allowed(
+		    gf->translate_cloud, localvocal_translation_is_paused(), !sentence.empty()))
 		return;
 	auto config = gf->translate_cloud_config;
 	const auto target_language = gf->translate_cloud_target_language;
 	const auto source_language = result.language;
-	const auto output = gf->translate_cloud_output.empty() ? gf->text_source_name
-							       : gf->translate_cloud_output;
+	if (config.provider == "openai") {
+		if (result.result != DETECTION_RESULT_SPEECH)
+			return; // Finalized utterances only; never pollute discourse with partials.
+		if (gf->openai_context_sentences > 0) {
+			if (gf->openai_context_source_language != source_language) {
+				gf->openai_speech_context.clear();
+				gf->openai_context_source_language = source_language;
+			}
+			config.openai_context = gf->openai_speech_context.snapshot(
+				static_cast<size_t>(gf->openai_context_sentences));
+			gf->openai_speech_context.remember(sentence);
+		}
+	}
+	const std::string output = localvocal::cloud_destination_or_none(
+		gf->translate_cloud_output.c_str());
+	if (output.empty()) {
+		obs_log(LOG_WARNING,
+			"Cloud translation has no destination; select an output in Cloud Translation settings");
+		return;
+	}
 	auto source = obs_get_source_by_name(output.c_str());
 	if (!source)
 		return;
@@ -445,7 +469,8 @@ void set_text_callback(uint64_t possible_end_ts, struct transcription_filter_dat
 				      gf->translate;
 
 	bool cloud_translation_overrides_local =
-		gf->translate_cloud && (gf->translate_cloud_output == gf->translation_output);
+		gf->translate_cloud && localvocal::same_configured_text_source(
+				       gf->translate_cloud_output.c_str(), gf->translation_output.c_str());
 
 	if (should_translate_cloud)
 		send_sentence_to_cloud_translation_async(str_copy, gf, result, possible_end_ts);
@@ -472,9 +497,8 @@ void set_text_callback(uint64_t possible_end_ts, struct transcription_filter_dat
 	obs_log(gf->log_level, "gf->translation_output: %s", gf->translation_output.c_str());
 	obs_log(gf->log_level, "gf->text_source_name: %s", gf->text_source_name.c_str());
 
-	bool cloud_translate_outputs_to_default_source =
-		gf->translate_cloud_output.empty() ||
-		(gf->translate_cloud_output == gf->text_source_name);
+	bool cloud_translate_outputs_to_default_source = localvocal::same_configured_text_source(
+		gf->translate_cloud_output.c_str(), gf->text_source_name.c_str());
 	bool local_translate_outputs_to_default_source =
 		gf->translation_output.empty() || (gf->translation_output == gf->text_source_name);
 	bool cloud_translation_overrides_captions = gf->translate_cloud &&
@@ -772,11 +796,12 @@ void clear_current_caption(transcription_filter_data *gf_, bool reset_cloud)
 	}
 	{
 		std::lock_guard<std::mutex> lock(gf_->cloud_mutex);
-		const auto cloud_output = gf_->translate_cloud_output.empty()
-						  ? gf_->text_source_name
-						  : gf_->translate_cloud_output;
-		if (reset_cloud)
+		const auto &cloud_output = gf_->translate_cloud_output;
+		if (reset_cloud) {
 			gf_->cloud_pipeline.reset();
+			gf_->openai_speech_context.clear();
+			gf_->openai_context_source_language.clear();
+		}
 		if (reset_cloud || !gf_->translate_cloud || gf_->text_source_name != cloud_output)
 			send_caption_to_source(gf_->text_source_name, "", gf_);
 		if (reset_cloud || !gf_->translate_cloud || gf_->translation_output != cloud_output)

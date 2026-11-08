@@ -8,6 +8,7 @@ option(ENABLE_FRONTEND_API "Use obs-frontend-api for UI functionality" ON)
 option(ENABLE_QT "Use Qt functionality" ON)
 option(ENABLE_TESTS "Enable tests" OFF)
 option(ENABLE_DOWNLOAD_TESTS "Build isolated Qt/curl model download tests" OFF)
+option(ENABLE_RESPONSE_TESTS "Build Responses API parser contract tests" OFF)
 option(ENABLE_WEBVTT "Enable WebVTT embedding" ON)
 
 option(USE_SYSTEM_CURL "Use system cURL" OFF)
@@ -159,6 +160,7 @@ endif()
 target_sources(
   ${CMAKE_PROJECT_NAME}
   PRIVATE src/plugin-main.c
+          src/translation-hotkeys.cpp
           src/transcription-filter.cpp
           src/transcription-filter.c
           src/transcription-filter-callbacks.cpp
@@ -202,4 +204,8 @@ if(ENABLE_TESTS)
 endif()
 if(ENABLE_DOWNLOAD_TESTS)
   add_subdirectory(tests/download-qt)
+endif()
+if(ENABLE_RESPONSE_TESTS)
+  enable_testing()
+  add_subdirectory(tests/responses)
 endif()

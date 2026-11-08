@@ -1,4 +1,5 @@
 #include "google-cloud.h"
+#include "google-language-routing.h"
 #include "curl-helper.h"
 #include "html-entities.h"
 #include <nlohmann/json.hpp>
@@ -65,11 +66,7 @@ std::string GoogleTranslator::translate(const std::string &text, const std::stri
 		url << "https://translation.googleapis.com/language/translate/v2"
 		    << "?key=" << api_key_
 		    << "&format=text&q=" << CurlHelper::urlEncode(curl.get(), text)
-		    << "&target=" << sanitize_language_code(target_lang);
-
-		if (source_lang != "auto") {
-			url << "&source=" << sanitize_language_code(source_lang);
-		}
+		    << localvocal::google_language_query(target_lang, source_lang);
 
 		curl_easy_setopt(curl.get(), CURLOPT_URL, url.str().c_str());
 		curl_easy_setopt(curl.get(), CURLOPT_WRITEFUNCTION, bounded_response);
