@@ -160,6 +160,7 @@ endif()
 target_sources(
   ${CMAKE_PROJECT_NAME}
   PRIVATE src/plugin-main.c
+          src/translation-hotkeys.cpp
           src/transcription-filter.cpp
           src/transcription-filter.c
           src/transcription-filter-callbacks.cpp

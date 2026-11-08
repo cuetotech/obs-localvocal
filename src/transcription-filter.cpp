@@ -23,6 +23,7 @@
 #include "transcription-filter-data.h"
 #include "transcription-filter-utils.h"
 #include "subtitle-overlay-policy.h"
+#include "translation-hotkeys.h"
 #include "transcription-utils.h"
 #include "model-utils/model-downloader.h"
 #include "whisper-utils/whisper-processing.h"
@@ -231,6 +232,7 @@ void transcription_filter_destroy(void *data)
 	if (gf->recording_callback_registered)
 		obs_frontend_remove_event_callback(recording_state_callback, gf);
 
+	localvocal_translation_filter_unregister(gf);
 	obs_log(gf->log_level, "filter destroy");
 	gf->model_callbacks->close();
 	gf->active = false;
@@ -831,6 +833,7 @@ void *transcription_filter_create(obs_data_t *settings, obs_source_t *filter)
 	obs_frontend_add_event_callback(recording_state_callback, gf);
 	gf->recording_callback_registered = true;
 
+	localvocal_translation_filter_register(gf);
 	obs_log(gf->log_level, "filter created.");
 	return creation_guard.release();
 }

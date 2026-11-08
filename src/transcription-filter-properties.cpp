@@ -740,6 +740,12 @@ void add_sermon_caption_properties(obs_properties_t *ppts, transcription_filter_
 			return true;
 		},
 		gf);
+	obs_properties_add_text(
+		group, "translation_hotkey_info",
+		"LocalVocal hotkeys: F7 pauses Google/OpenAI cloud requests and hides caption outputs; "
+		"F8 resumes without muting the microphone or unloading Whisper. "
+		"Check Settings > Hotkeys and remove duplicate old F7/F8 scene-item bindings.",
+		OBS_TEXT_INFO);
 	obs_properties_add_bool(group, "sermon_mode",
 				"Readable cloud captions + bounded continuous speech");
 	obs_properties_add_int_slider(group, "english_line_chars",

@@ -17,6 +17,8 @@
 
 #include "transcription-filter-callbacks.h"
 #include "subtitle-overlay-policy.h"
+#include "translation-hotkeys.h"
+#include "translation-hotkey-policy.h"
 #include "transcription-utils.h"
 #include "translation/translation.h"
 #include "translation/translation-includes.h"
@@ -101,7 +103,10 @@ void send_sentence_to_cloud_translation_async(const std::string &sentence,
 					      uint64_t possible_end_ts)
 {
 	std::lock_guard<std::mutex> lock(gf->cloud_mutex);
-	if (!gf->translate_cloud || sentence.empty())
+	// F7 blocks new submissions while F8 resumes without resetting Whisper.
+	// The cloud mutex serializes this gate with pending-caption invalidation.
+	if (!localvocal::cloud_submission_allowed(
+		    gf->translate_cloud, localvocal_translation_is_paused(), !sentence.empty()))
 		return;
 	auto config = gf->translate_cloud_config;
 	const auto target_language = gf->translate_cloud_target_language;
