@@ -55,6 +55,20 @@ int main()
 	check(source_choice_unset("(null)") && !source_choice_unset("English Subtitles"),
 	      "source-choice sentinel detection");
 
+	check(std::strcmp(cloud_destination_or_none("none"), "") == 0 &&
+	      std::strcmp(cloud_destination_or_none("(null)"), "") == 0,
+	      "unassigned Cloud output never falls back to General transcript");
+	check(std::strcmp(cloud_destination_or_none("English Subtitles"),
+		  "English Subtitles") == 0,
+	      "explicit Cloud translation destination retained");
+	check(!same_configured_text_source("none", "none") &&
+	      !same_configured_text_source("", "") &&
+	      !same_configured_text_source("none", "LocalVocal Subtitles"),
+	      "unassigned routes are not considered a destination collision");
+	check(same_configured_text_source("English Subtitles", "English Subtitles") &&
+	      !same_configured_text_source("LocalVocal Subtitles", "English Subtitles"),
+	      "only explicitly shared text sources suppress competing writes");
+
 	check(kEnglishSubtitleWidth == 1600 && kEnglishSubtitleFontSize == 72 &&
 		      kEnglishSubtitleBottomMargin == 40,
 	      "church presentation defaults retained");

@@ -423,10 +423,7 @@ void transcription_filter_update(void *data, obs_data_t *s)
 				[gf](const std::string &translated_text) {
 					if (gf->buffered_output) {
 						send_caption_to_source(
-							(gf->translate_cloud_output.empty() ||
-							 (gf->translate_cloud_output == "none"))
-								? gf->text_source_name
-								: gf->translate_cloud_output,
+							gf->translate_cloud_output,
 							translated_text, gf);
 					}
 				},
@@ -478,11 +475,7 @@ void transcription_filter_update(void *data, obs_data_t *s)
 					[gf](const std::string &translated_text) {
 						if (gf->buffered_output) {
 							send_caption_to_source(
-								(gf->translate_cloud_output.empty() ||
-								 (gf->translate_cloud_output ==
-								  "none"))
-									? gf->text_source_name
-									: gf->translate_cloud_output,
+								gf->translate_cloud_output,
 								translated_text, gf);
 						}
 					});
@@ -594,6 +587,15 @@ void transcription_filter_update(void *data, obs_data_t *s)
 			std::clamp<long long>(obs_data_get_int(s, "english_max_age"), 6000, 30000));
 		gf->cloud_pipeline.configure(gf->cloud_caption_options);
 		gf->translate_cloud = obs_data_get_bool(s, "translate_cloud");
+		// Also handle Cloud Translation being enabled after filter creation.
+		// Keep General transcription routing untouched.
+		if (localvocal::should_default_cloud_to_english(
+			    gf->translate_cloud, obs_data_get_string(s, "translate_cloud_output"),
+			    obs_data_get_string(s, "subtitle_sources"))) {
+			obs_data_set_string(s, "translate_cloud_output",
+					    localvocal::kEnglishSubtitlesSource);
+			obs_log(LOG_INFO, "Cloud destination set to English Subtitles; General output unchanged");
+		}
 		gf->translate_cloud_config.provider =
 			obs_data_get_string(s, "translate_cloud_provider");
 		gf->translate_cloud_config.model =

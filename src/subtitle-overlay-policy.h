@@ -42,6 +42,18 @@ inline bool source_choice_unset(const char *name)
 	       std::strcmp(name, "(null)") == 0;
 }
 
+// A missing cloud destination must never inherit the General transcript destination.
+inline const char *cloud_destination_or_none(const char *cloud_output)
+{
+	return source_choice_unset(cloud_output) ? "" : cloud_output;
+}
+
+inline bool same_configured_text_source(const char *first, const char *second)
+{
+	return !source_choice_unset(first) && !source_choice_unset(second) &&
+	       std::strcmp(first, second) == 0;
+}
+
 inline bool should_default_cloud_to_english(bool cloud_enabled, const char *cloud_output,
 					    const char *general_output)
 {
