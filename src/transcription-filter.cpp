@@ -5,6 +5,8 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <cstdlib>
+#include <mutex>
 #include <fstream>
 #include <sstream>
 #include <iomanip>
@@ -76,6 +78,34 @@ void enumerate_gpu_devices(transcription_filter_data *gf)
 #endif
 
 	obs_log(LOG_INFO, "Loading dynamic backends from %s", path.string().c_str());
+#ifdef _WIN32
+	// Diagnostic only: normal backend discovery remains unchanged unless
+	// SOMANG_CUDA_DIAGNOSTICS=1 is set before OBS starts.
+	const char *cuda_diagnostics = std::getenv("SOMANG_CUDA_DIAGNOSTICS");
+	if (cuda_diagnostics && std::string(cuda_diagnostics) == "1") {
+		static std::once_flag cuda_diagnostics_once;
+		std::call_once(cuda_diagnostics_once, [&path] {
+			const auto cuda_path = path / "ggml-cuda.dll";
+			if (!std::filesystem::is_regular_file(cuda_path)) {
+				obs_log(LOG_WARNING, "CUDA diagnostic: %s is missing",
+					cuda_path.string().c_str());
+				return;
+			}
+			obs_log(LOG_INFO, "CUDA diagnostic: explicitly loading %s",
+				cuda_path.string().c_str());
+			auto *cuda_backend = ggml_backend_load(cuda_path.string().c_str());
+			if (cuda_backend) {
+				obs_log(LOG_INFO, "CUDA diagnostic: registered %s with %zu devices",
+					ggml_backend_reg_name(cuda_backend),
+					ggml_backend_reg_dev_count(cuda_backend));
+			} else {
+				obs_log(LOG_WARNING,
+					"CUDA diagnostic: explicit GGML backend load returned NULL; "
+					"inspect preceding GGML loader messages");
+			}
+		});
+	}
+#endif
 	ggml_backend_load_all_from_path(path.string().c_str());
 #endif
 
