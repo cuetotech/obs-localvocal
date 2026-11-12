@@ -133,7 +133,14 @@ void enumerate_gpu_devices(transcription_filter_data *gf)
 		});
 	}
 #endif
-	ggml_backend_load_all_from_path(path.string().c_str());
+	// GGML's registry is process-wide and backend_load_all_from_path() is NOT
+	// idempotent: calling it for each OBS filter appends duplicate devices.
+	// Discover the backends once; each filter can independently enumerate the
+	// same stable devices without registering extra CUDA/Vulkan entries.
+	static std::once_flag backend_discovery_once;
+	std::call_once(backend_discovery_once, [path] {
+		ggml_backend_load_all_from_path(path.string().c_str());
+	});
 #endif
 
 	// Enumerate backend devices to populate list
