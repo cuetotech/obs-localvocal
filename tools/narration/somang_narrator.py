@@ -35,7 +35,7 @@ class Narrator:
         self.paused = False
         self.active_stream = None
         self.last_seq = {}
-        self.metrics = dict(accepted=0, played=0, rejected=0, expired=0,
+        self.metrics = dict(accepted=0, played=0, dry_run_processed=0, rejected=0, expired=0,
                             overflow=0, failed=0, flushed=0)
         self.finished = False
         self.worker = threading.Thread(target=self._worker, daemon=True)
@@ -112,12 +112,14 @@ class Narrator:
                 continue
             try:
                 if self.speak:
-                    self._speak(text, generation, produced)
+                    completed = self._speak(text, generation, produced)
+                    if completed:
+                        with self.cv:
+                            self.metrics["played"] += 1
                 else:
-                    # Dry-run does not generate or play audio, nor expose sermon text in logs.
-                    pass
-                with self.cv:
-                    self.metrics["played"] += 1
+                    # Dry-run does not generate/play audio or print sermon content.
+                    with self.cv:
+                        self.metrics["dry_run_processed"] += 1
             except Exception as exc:
                 with self.cv:
                     self.metrics["failed"] += 1
@@ -141,7 +143,7 @@ class Narrator:
             if proc.returncode != 0:
                 raise RuntimeError("SAPI synthesis failed")
             if not self._valid(generation, produced):
-                return
+                return False
             with wave.open(str(wav_path), "rb") as wav:
                 if wav.getcomptype() != "NONE" or wav.getsampwidth() != 2:
                     raise RuntimeError("Expected uncompressed 16-bit PCM")
@@ -162,6 +164,7 @@ class Narrator:
                     finally:
                         with self.cv:
                             self.active_stream = None
+            return self._valid(generation, produced)
 
 
 def serve(narrator, port):
