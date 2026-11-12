@@ -5,6 +5,8 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <cstdlib>
+#include <mutex>
 #include <fstream>
 #include <sstream>
 #include <iomanip>
@@ -76,7 +78,69 @@ void enumerate_gpu_devices(transcription_filter_data *gf)
 #endif
 
 	obs_log(LOG_INFO, "Loading dynamic backends from %s", path.string().c_str());
-	ggml_backend_load_all_from_path(path.string().c_str());
+#ifdef _WIN32
+	// CUDA dependency-directory preload: Windows LoadLibraryW does not search the
+	// CUDA backend DLL's own directory for adjacent CUDA/cuBLAS dependencies.
+	// Use LoadLibraryExW with an absolute path and per-DLL dependency search,
+	// retaining this module until OBS exits so the GGML scan can reuse it.
+	// No global PATH/SetDllDirectory changes or Windows driver install needed.
+	static std::once_flag cuda_preload_once;
+	static HMODULE cuda_preloaded = nullptr;
+	std::call_once(cuda_preload_once, [&path] {
+		std::error_code ec;
+		const auto cuda_path = std::filesystem::absolute(path / "ggml-cuda.dll", ec);
+		if (ec || !std::filesystem::is_regular_file(cuda_path, ec))
+			return; // Non-NVIDIA packages legitimately omit CUDA.
+
+		cuda_preloaded = LoadLibraryExW(cuda_path.wstring().c_str(), nullptr,
+					      LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR |
+						      LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+		if (!cuda_preloaded) {
+			const DWORD error_code = GetLastError();
+			obs_log(LOG_WARNING,
+				"CUDA backend dependency-directory preload failed (Win32 %lu)",
+				static_cast<unsigned long>(error_code));
+		} else {
+			obs_log(LOG_INFO,
+				"CUDA backend dependency-directory preload succeeded; "
+				"GGML registration still requires a positive backend score");
+		}
+	});
+	// Diagnostic only: normal backend discovery remains unchanged unless
+	// SOMANG_CUDA_DIAGNOSTICS=1 is set before OBS starts.
+	const char *cuda_diagnostics = std::getenv("SOMANG_CUDA_DIAGNOSTICS");
+	if (cuda_diagnostics && std::string(cuda_diagnostics) == "1") {
+		static std::once_flag cuda_diagnostics_once;
+		std::call_once(cuda_diagnostics_once, [&path] {
+			const auto cuda_path = path / "ggml-cuda.dll";
+			if (!std::filesystem::is_regular_file(cuda_path)) {
+				obs_log(LOG_WARNING, "CUDA diagnostic: %s is missing",
+					cuda_path.string().c_str());
+				return;
+			}
+			obs_log(LOG_INFO, "CUDA diagnostic: explicitly loading %s",
+				cuda_path.string().c_str());
+			auto *cuda_backend = ggml_backend_load(cuda_path.string().c_str());
+			if (cuda_backend) {
+				obs_log(LOG_INFO, "CUDA diagnostic: registered %s with %zu devices",
+					ggml_backend_reg_name(cuda_backend),
+					ggml_backend_reg_dev_count(cuda_backend));
+			} else {
+				obs_log(LOG_WARNING,
+					"CUDA diagnostic: explicit GGML backend load returned NULL; "
+					"inspect preceding GGML loader messages");
+			}
+		});
+	}
+#endif
+	// GGML's registry is process-wide and backend_load_all_from_path() is NOT
+	// idempotent: calling it for each OBS filter appends duplicate devices.
+	// Discover the backends once; each filter can independently enumerate the
+	// same stable devices without registering extra CUDA/Vulkan entries.
+	static std::once_flag backend_discovery_once;
+	std::call_once(backend_discovery_once, [path] {
+		ggml_backend_load_all_from_path(path.string().c_str());
+	});
 #endif
 
 	// Enumerate backend devices to populate list
