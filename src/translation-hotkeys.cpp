@@ -3,6 +3,7 @@
 #include "subtitle-overlay-policy.h"
 #include "transcription-filter-data.h"
 #include "translation-hotkey-policy.h"
+#include "captions/somang-narration-bridge.h"
 
 #include <obs.h>
 #include <obs-frontend-api.h>
@@ -131,6 +132,8 @@ void apply_cloud_pause(bool paused)
 		for (const auto &output : outputs)
 			clear_text_source(output);
 	set_visible(!paused, outputs);
+	// Narration queue is independently flushed on pause; mic remains untouched.
+	somang_narration::Bridge::instance().control(paused ? "pause" : "resume");
 	obs_log(LOG_INFO, "Translation %s: %zu cloud destinations; microphone unchanged",
 		paused ? "PAUSED (F7)" : "RESUMED (F8)", outputs.size());
 }
