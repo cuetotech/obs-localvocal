@@ -3,7 +3,7 @@ name: LocalVocal Windows NVIDIA - tested translation fixes
 on:
   workflow_dispatch:
   push:
-    branches: [build/nvidia-translation-20261023, feat/rtx4070-sermon-captions, feat/openai-responses-contextual-sermons]
+    branches: [build/nvidia-translation-20261023, feat/rtx4070-sermon-captions, feat/openai-responses-contextual-sermons, experiment/narration-sidecar-20261111]
     paths:
       - '.github/workflows/build-nvidia.yml'
       - '.github/scripts/**'
@@ -51,6 +51,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Test compile failed' }
           ctest --test-dir build-regression -C Release --output-on-failure
           if ($LASTEXITCODE -ne 0) { throw 'Regression tests failed' }
+
+      - name: Test experimental narration sidecar (dry run, no audio)
+        run: |
+          python -m unittest discover -s tools/narration -p test_narrator.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'Narration unit tests failed' }
 
       - name: Initialize Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659

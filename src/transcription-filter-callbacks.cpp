@@ -18,6 +18,7 @@
 #include "transcription-filter-callbacks.h"
 #include "subtitle-overlay-policy.h"
 #include "translation-hotkeys.h"
+#include "captions/somang-narration-bridge.h"
 #include "translation-hotkey-policy.h"
 #include "transcription-utils.h"
 #include "translation/translation.h"
@@ -393,6 +394,10 @@ void drain_cloud_captions(transcription_filter_data *gf)
 	std::lock_guard<std::mutex> settings_lock(gf->settings_mutex);
 	std::lock_guard<std::mutex> lock(gf->cloud_mutex);
 	for (const auto &completed : gf->cloud_pipeline.take_completed()) {
+		if (completed.context.result.result == DETECTION_RESULT_SPEECH &&
+		    !localvocal_translation_is_paused())
+			somang_narration::Bridge::instance().translated(
+				completed.context.output_source, completed.sequence, completed.text);
 		output_text(gf, completed.context.result, completed.context.possible_end_ts,
 			    completed.text, completed.context.output_source, CLOUD_TRANSLATION,
 			    false);
