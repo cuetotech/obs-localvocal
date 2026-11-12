@@ -79,6 +79,33 @@ void enumerate_gpu_devices(transcription_filter_data *gf)
 
 	obs_log(LOG_INFO, "Loading dynamic backends from %s", path.string().c_str());
 #ifdef _WIN32
+	// CUDA dependency-directory preload: Windows LoadLibraryW does not search the
+	// CUDA backend DLL's own directory for adjacent CUDA/cuBLAS dependencies.
+	// Use LoadLibraryExW with an absolute path and per-DLL dependency search,
+	// retaining this module until OBS exits so the GGML scan can reuse it.
+	// No global PATH/SetDllDirectory changes or Windows driver install needed.
+	static std::once_flag cuda_preload_once;
+	static HMODULE cuda_preloaded = nullptr;
+	std::call_once(cuda_preload_once, [&path] {
+		std::error_code ec;
+		const auto cuda_path = std::filesystem::absolute(path / "ggml-cuda.dll", ec);
+		if (ec || !std::filesystem::is_regular_file(cuda_path, ec))
+			return; // Non-NVIDIA packages legitimately omit CUDA.
+
+		cuda_preloaded = LoadLibraryExW(cuda_path.wstring().c_str(), nullptr,
+					      LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR |
+						      LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+		if (!cuda_preloaded) {
+			const DWORD error_code = GetLastError();
+			obs_log(LOG_WARNING,
+				"CUDA backend dependency-directory preload failed (Win32 %lu)",
+				static_cast<unsigned long>(error_code));
+		} else {
+			obs_log(LOG_INFO,
+				"CUDA backend dependency-directory preload succeeded; "
+				"GGML registration still requires a positive backend score");
+		}
+	});
 	// Diagnostic only: normal backend discovery remains unchanged unless
 	// SOMANG_CUDA_DIAGNOSTICS=1 is set before OBS starts.
 	const char *cuda_diagnostics = std::getenv("SOMANG_CUDA_DIAGNOSTICS");
