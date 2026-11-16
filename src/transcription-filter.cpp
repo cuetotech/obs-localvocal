@@ -35,6 +35,7 @@
 #include "whisper-utils/whisper-params.h"
 #include "translation/language_codes.h"
 #include "translation/cloud-translation/cloud-credentials.h"
+#include "translation/cloud-translation/openai-request.h"
 #include "translation/translation-utils.h"
 #include "translation/translation.h"
 #include "translation/translation-includes.h"
@@ -668,8 +669,13 @@ void transcription_filter_update(void *data, obs_data_t *s)
 			obs_data_get_string(s, "translate_cloud_openai_model");
 		gf->openai_context_sentences = static_cast<int>(std::clamp<long long>(
 			obs_data_get_int(s, "translate_cloud_openai_context"), 0, 3));
-		gf->translate_cloud_config.openai_sermon_profile =
-			obs_data_get_bool(s, "translate_cloud_openai_sermon_profile");
+		gf->translate_cloud_config.openai_sermon_context_card =
+			localvocal::bounded_sermon_context_card(
+				obs_data_get_string(s, "translate_cloud_openai_sermon_context_card"));
+		gf->translate_cloud_config.openai_store_response =
+			obs_data_get_bool(s, "translate_cloud_openai_store_response");
+		gf->translate_cloud_config.openai_reasoning_effort =
+			obs_data_get_string(s, "translate_cloud_openai_reasoning_effort");
 		gf->translate_cloud_config.openai_session_limit_usd =
 			std::clamp(obs_data_get_double(s, "translate_cloud_openai_budget_usd"),
 				   0.0, 40.0);
