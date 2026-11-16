@@ -57,6 +57,7 @@ bool translation_cloud_provider_selection_callback(obs_properties_t *props, obs_
 	for (const auto &name : {"translate_cloud_openai_model",
 				 "translate_cloud_openai_context",
 				 "translate_cloud_openai_sermon_context_card",
+				 "translate_cloud_openai_sermon_card_help",
 				 "translate_cloud_openai_store_response",
 				 "translate_cloud_openai_reasoning_effort",
 				 "translate_cloud_openai_budget_usd"})
@@ -103,6 +104,7 @@ bool translation_cloud_options_callback(obs_properties_t *props, obs_property_t 
 	      "translate_cloud_body", "translate_cloud_response_json_path",
 	      "translate_cloud_openai_model", "translate_cloud_openai_context",
 	      "translate_cloud_openai_sermon_context_card",
+	      "translate_cloud_openai_sermon_card_help",
 	      "translate_cloud_openai_store_response", "translate_cloud_openai_reasoning_effort",
 	      "translate_cloud_openai_budget_usd"}) {
 		obs_property_set_visible(obs_properties_get(props, prop), translate_enabled);
