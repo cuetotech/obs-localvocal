@@ -56,7 +56,9 @@ bool translation_cloud_provider_selection_callback(obs_properties_t *props, obs_
 	const bool openai = strcmp(provider, "openai") == 0;
 	for (const auto &name : {"translate_cloud_openai_model",
 				 "translate_cloud_openai_context",
-				 "translate_cloud_openai_sermon_profile",
+				 "translate_cloud_openai_sermon_context_card",
+				 "translate_cloud_openai_store_response",
+				 "translate_cloud_openai_reasoning_effort",
 				 "translate_cloud_openai_budget_usd"})
 		obs_property_set_visible(obs_properties_get(props, name), openai);
 	// Dedicated keys stay in separate OBS settings while switching providers.
@@ -100,7 +102,9 @@ bool translation_cloud_options_callback(obs_properties_t *props, obs_property_t 
 	      "translate_cloud_deepl_free", "translate_cloud_region", "translate_cloud_endpoint",
 	      "translate_cloud_body", "translate_cloud_response_json_path",
 	      "translate_cloud_openai_model", "translate_cloud_openai_context",
-	      "translate_cloud_openai_sermon_profile", "translate_cloud_openai_budget_usd"}) {
+	      "translate_cloud_openai_sermon_context_card",
+	      "translate_cloud_openai_store_response", "translate_cloud_openai_reasoning_effort",
+	      "translate_cloud_openai_budget_usd"}) {
 		obs_property_set_visible(obs_properties_get(props, prop), translate_enabled);
 	}
 	if (translate_enabled) {
@@ -297,7 +301,8 @@ void add_translation_cloud_group_properties(obs_properties_t *ppts)
 	// Explicitly opt in to OpenAI. Changing these settings never changes Google defaults.
 	obs_property_t *openai_model = obs_properties_add_list(
 		translation_cloud_group, "translate_cloud_openai_model", "OpenAI model",
-		OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
+		OBS_COMBO_TYPE_EDITABLE, OBS_COMBO_FORMAT_STRING);
+	// Enter newly available Responses API model IDs here without rebuilding.
 	obs_property_list_add_string(openai_model, "GPT-6 Luna (lower cost)", "gpt-6-luna");
 	obs_property_list_add_string(openai_model, "GPT-6.1 Terra (quality trial)",
 				     "gpt-6.1-terra");
@@ -307,8 +312,25 @@ void add_translation_cloud_group_properties(obs_properties_t *ppts)
 	obs_property_list_add_int(openai_context, "Disabled (current sentence only)", 0);
 	obs_property_list_add_int(openai_context, "Previous 2 segments", 2);
 	obs_property_list_add_int(openai_context, "Previous 3 segments", 3);
-	obs_properties_add_bool(translation_cloud_group, "translate_cloud_openai_sermon_profile",
-				"Presbyterian Korean sermon terminology guidance");
+	obs_properties_add_text(translation_cloud_group,
+				"translate_cloud_openai_sermon_context_card",
+				"Today's sermon context card (Korean + English terms; reference only)",
+				OBS_TEXT_MULTILINE);
+	obs_properties_add_text(translation_cloud_group, "translate_cloud_openai_sermon_card_help",
+				"Paste the pastor-approved context card (~250-350 tokens). "
+				"Background reference only, not spoken words. Up to 4096 UTF-8 bytes sent.",
+				OBS_TEXT_INFO);
+	obs_properties_add_bool(translation_cloud_group,
+				"translate_cloud_openai_store_response",
+				"Store OpenAI Responses for audit (default off; server retention)");
+	obs_property_t *reasoning = obs_properties_add_list(
+		translation_cloud_group, "translate_cloud_openai_reasoning_effort",
+		"OpenAI reasoning effort", OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
+	obs_property_list_add_string(reasoning, "None (current low-latency default)", "none");
+	obs_property_list_add_string(reasoning, "Auto (omit parameter; for new models)", "auto");
+	obs_property_list_add_string(reasoning, "Low", "low");
+	obs_property_list_add_string(reasoning, "Medium", "medium");
+	obs_property_list_add_string(reasoning, "High", "high");
 	obs_properties_add_float_slider(translation_cloud_group,
 		"translate_cloud_openai_budget_usd",
 		"OpenAI estimated session limit (USD; 0 = unlimited)", 0.0, 40.0, 0.5);
@@ -872,7 +894,9 @@ void transcription_filter_defaults(obs_data_t *s)
 	obs_data_set_default_string(s, "translate_cloud_openai_api_key", "");
 	obs_data_set_default_string(s, "translate_cloud_openai_model", "gpt-6-luna");
 	obs_data_set_default_int(s, "translate_cloud_openai_context", 0);
-	obs_data_set_default_bool(s, "translate_cloud_openai_sermon_profile", true);
+	obs_data_set_default_string(s, "translate_cloud_openai_sermon_context_card", "");
+	obs_data_set_default_bool(s, "translate_cloud_openai_store_response", false);
+	obs_data_set_default_string(s, "translate_cloud_openai_reasoning_effort", "none");
 	obs_data_set_default_double(s, "translate_cloud_openai_budget_usd", 0.0);
 	obs_data_set_default_string(s, "translate_cloud_target_language", "en");
 	obs_data_set_default_string(s, "translate_cloud_output", "none");
