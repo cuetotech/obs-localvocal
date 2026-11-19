@@ -36,3 +36,15 @@ target_include_directories(${TEST_EXEC_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
 # install the tests to the release/test directory
 install(TARGETS ${TEST_EXEC_NAME} DESTINATION test)
+
+# General-purpose reliability regression targets (also runnable standalone).
+add_executable(${CMAKE_PROJECT_NAME}-upstream-regression
+  ${CMAKE_SOURCE_DIR}/tests/upstream-reliability/regression.cpp)
+target_compile_features(${CMAKE_PROJECT_NAME}-upstream-regression PRIVATE cxx_std_17)
+add_test(NAME upstream-entity-and-prefix COMMAND ${CMAKE_PROJECT_NAME}-upstream-regression)
+add_executable(${CMAKE_PROJECT_NAME}-upstream-safety
+  ${CMAKE_SOURCE_DIR}/tests/upstream-reliability/safety.cpp
+  ${CMAKE_SOURCE_DIR}/src/transcription-utils.cpp
+  ${CMAKE_SOURCE_DIR}/src/model-utils/sha256.cpp)
+target_compile_features(${CMAKE_PROJECT_NAME}-upstream-safety PRIVATE cxx_std_17)
+add_test(NAME upstream-text-and-download-safety COMMAND ${CMAKE_PROJECT_NAME}-upstream-safety)
