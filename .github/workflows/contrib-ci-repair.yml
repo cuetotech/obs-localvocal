@@ -2,6 +2,8 @@ name: Contribution CI repair and ONNX package inventory
 on:
   push:
     branches: [contrib/upstream-reliability-super-pr-20261119]
+  pull_request:
+    branches: [master]
 permissions:
   contents: write
 jobs:
@@ -11,6 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
           persist-credentials: true
       - name: Apply upstream formatters
         run: |
