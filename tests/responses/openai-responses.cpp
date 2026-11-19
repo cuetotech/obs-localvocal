@@ -1,6 +1,7 @@
 #include <cctype>
 #include "../../src/translation/cloud-translation/openai-responses.h"
 #include "../../src/translation/cloud-translation/openai-request.h"
+#include "../../src/translation/cloud-translation/openai-model-catalog.h"
 
 #include <cstdlib>
 #include <iostream>
@@ -80,6 +81,43 @@ int main()
 	      "missing usage does not crash");
 
 	// Newly configured model IDs must not be silently substituted with Luna.
+	// Operators control the dropdown using JSON. Labels must never be API IDs.
+	const auto seeded_models = localvocal::parse_openai_model_catalog(
+		json::parse(localvocal::initial_openai_model_catalog_json()));
+	check(seeded_models.size() == 2 && seeded_models[0].id == "gpt-6-luna" &&
+		      seeded_models[1].id == "gpt-6.1-terra",
+	      "generated JSON loads the shipped catalog");
+	const auto models = localvocal::parse_openai_model_catalog(json::parse(
+		R"({"version":1,"models":[{"id":"gpt-6-luna","label":"Affordable model"},{"id":"gpt-example-2027","label":"English translation test"}]})"));
+	check(models.size() == 2 && models[0].label == "Affordable model" &&
+		      models[0].id == "gpt-6-luna" &&
+		      models[1].id == "gpt-example-2027",
+	      "JSON labels stay distinct from canonical API IDs and accept additional models");
+	bool bad_catalog = false;
+	try {
+		(void)localvocal::parse_openai_model_catalog(json::parse(
+			R"({"version":1,"models":[{"id":"gpt-6-luna","label":"Valid"},{"id":"gpt-6-luna","label":"Duplicate"}]})"));
+	} catch (const std::exception &) {
+		bad_catalog = true;
+	}
+	check(bad_catalog, "duplicate model IDs are rejected");
+	bad_catalog = false;
+	try {
+		(void)localvocal::parse_openai_model_catalog(json::parse(
+			R"({"version":1,"models":[{"id":"friendly model label","label":"Invalid"}]})"));
+	} catch (const std::exception &) {
+		bad_catalog = true;
+	}
+	check(bad_catalog, "labels and invalid IDs cannot be submitted as model IDs");
+	bad_catalog = false;
+	try {
+		(void)localvocal::parse_openai_model_catalog(json::parse(
+			R"({"version":1,"models":[]})"));
+	} catch (const std::exception &) {
+		bad_catalog = true;
+	}
+	check(bad_catalog, "empty model list is rejected");
+
 	check(localvocal::validated_openai_model("  gpt-test-2027 ") == "gpt-test-2027",
 	      "editable model ID is preserved");
 	check(localvocal::validated_openai_model(" \n") == "gpt-6-luna",
