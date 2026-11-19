@@ -5,6 +5,7 @@
 #include "model-utils/model-downloader-types.h"
 
 #include <QAbstractItemView>
+#include <QComboBox>
 #include <QDialog>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -16,7 +17,7 @@
 #include <QTableWidget>
 #include <QVBoxLayout>
 
-void open_localvocal_model_library(QWidget *parent)
+void open_localvocal_model_library(QWidget *parent, ModelType initial_type)
 {
 	QDialog dialog(parent);
 	dialog.setWindowTitle("LocalVocal - Manage Models");
@@ -28,6 +29,11 @@ void open_localvocal_model_library(QWidget *parent)
 		&dialog);
 	intro->setWordWrap(true);
 	layout->addWidget(intro);
+	auto *category = new QComboBox(&dialog);
+	category->addItem("Speech recognition", static_cast<int>(MODEL_TYPE_TRANSCRIPTION));
+	category->addItem("Local translation", static_cast<int>(MODEL_TYPE_TRANSLATION));
+	category->setCurrentIndex(initial_type == MODEL_TYPE_TRANSLATION ? 1 : 0);
+	layout->addWidget(category);
 	auto *query = new QLineEdit(&dialog);
 	query->setPlaceholderText("Search model names, languages, or descriptions...");
 	layout->addWidget(query);
@@ -54,11 +60,12 @@ void open_localvocal_model_library(QWidget *parent)
 	buttons->addWidget(close);
 	layout->addLayout(buttons);
 
-	const auto redraw = [table, query, status, download] {
+	const auto redraw = [table, category, query, status, download] {
 		table->setRowCount(0);
 		const auto search = query->text().trimmed();
 		int installed = 0, available = 0;
-		for (const auto &model : get_sorted_models_info(MODEL_TYPE_TRANSCRIPTION)) {
+		const auto type = static_cast<ModelType>(category->currentData().toInt());
+		for (const auto &model : get_sorted_models_info(type)) {
 			if (model.files.empty() || model.local_folder_name.empty())
 				continue; // Exclude non-model catalog separators.
 			const bool local = localvocal::model_installed_locally(model);
@@ -91,6 +98,8 @@ void open_localvocal_model_library(QWidget *parent)
 		if (table->rowCount())
 			table->selectRow(0);
 	};
+	QObject::connect(category, QOverload<int>::of(&QComboBox::currentIndexChanged),
+			 &dialog, [redraw](int) { redraw(); });
 	QObject::connect(query, &QLineEdit::textChanged, &dialog,
 			 [redraw](const QString &) { redraw(); });
 	QObject::connect(refresh, &QPushButton::clicked, &dialog, redraw);
