@@ -140,8 +140,6 @@ void enumerate_gpu_devices(transcription_filter_data *gf)
 	});
 #endif
 
-#endif
-
 	// Enumerate backend devices to populate list
 	auto backend_count = ggml_backend_dev_count();
 	size_t gpu_count = 0;
