@@ -202,33 +202,25 @@ std::map<std::string, ModelInfo> load_models_info()
 	std::map<std::string, ModelInfo> models_info_map;
 	nlohmann::json model_directory_json;
 
-	// Try to download from GitHub first
-	std::string github_json_content;
-	bool download_success = download_json_from_github(github_json_content);
-
-	if (download_success) {
-		obs_log(LOG_INFO, "Successfully downloaded models directory from GitHub");
-		std::istringstream json_stream(github_json_content);
-		json_stream >> model_directory_json;
-	} else {
-		// Fall back to local file
-		obs_log(LOG_INFO, "Falling back to local models directory file");
-		char *model_directory_json_file = obs_module_file("models/models_directory.json");
-		if (model_directory_json_file == nullptr) {
-			obs_log(LOG_ERROR, "Cannot find local model directory file");
-			return models_info_map;
-		}
-		obs_log(LOG_INFO, "Local model directory file: %s", model_directory_json_file);
-		std::string model_directory_file_str = std::string(model_directory_json_file);
-		bfree(model_directory_json_file);
-
-		std::ifstream model_directory_file(model_directory_file_str);
-		if (!model_directory_file.is_open()) {
-			obs_log(LOG_ERROR, "Failed to open local model directory file");
-			return models_info_map;
-		}
-
-		model_directory_file >> model_directory_json;
+	// Use the packaged catalog for predictable offline operation. A catalog
+	// refresh should be an explicit user action, not an OBS startup dependency.
+	char *catalog_path = obs_module_file("models/models_directory.json");
+	if (!catalog_path) {
+		obs_log(LOG_ERROR, "Cannot find bundled model directory file");
+		return models_info_map;
+	}
+	std::string file_path(catalog_path);
+	bfree(catalog_path);
+	std::ifstream catalog(file_path);
+	if (!catalog.is_open()) {
+		obs_log(LOG_ERROR, "Cannot open bundled model directory file");
+		return models_info_map;
+	}
+	try {
+		catalog >> model_directory_json;
+	} catch (const nlohmann::json::exception &) {
+		obs_log(LOG_ERROR, "Bundled model catalog is invalid JSON");
+		return models_info_map;
 	}
 
 	if (!model_directory_json.contains("models") ||
