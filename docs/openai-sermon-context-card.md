@@ -14,7 +14,7 @@ English subtitle output, and **Previous 3 segments**. The new controls are:
 
 | Field | Behavior |
 | --- | --- |
-| **OpenAI model** | Editable selector with existing preset choices. Choose one or type an exact OpenAI Responses API model ID. No JSON file or plugin rebuild needed to enter a new ID. API availability and feature support still depend on the model/account. |
+| **OpenAI model** | Fixed-choice dropdown loaded from `openai-models.json` in the OBS LocalVocal plugin configuration directory. Add, remove, or rename rows in that file, reopen Filters, and select an exact ID. See [OpenAI model catalog](openai-model-catalog.md). A listed model still requires API project access and Responses API compatibility. |
 | **OpenAI reasoning effort** | Defaults to **None** to preserve the current latency profile. Select **Auto** for models that reject `none`; Auto omits the `reasoning` field and uses the model's default, which may be slower. Low/Medium/High are optional experiments; not every model supports them. |
 | **Store OpenAI Responses for audit** | Off by default. When enabled, each successful request sends `store:true`, making the response retrievable according to OpenAI account retention and data policies (typically 30 days). Does not archive microphone audio. |
 | **Today's sermon context card** | Multiline Korean-first card with preferred English names/terms. Paste the pastor-approved text, typically 250–350 tokens. Leave blank to send no per-service card. The transmitted card is capped at 4096 UTF-8 bytes, without splitting Korean code points. |
@@ -53,8 +53,10 @@ the latency impact negligible.
 
 ## Model and cost safety
 
-- Arbitrary typed model IDs **are not silently rewritten** to Luna. Blank
-  IDs keep the existing Luna fallback. Malformed IDs fail before network.
+- Model IDs are **not typed in OBS**: the operator edits `openai-models.json`, and
+  LocalVocal sends the selected row's exact `id`, never the display label.
+  Malformed/duplicate catalogs or a removed/stale selected model fail explicitly,
+  rather than silently sending a friendly label or switching to Luna.
 - Existing estimated local USD spend limit has known embedded rates only
   for `gpt-6-luna` and `gpt-6.1-terra` (their rates can become stale).
   If a different model is selected while the **local USD limit is greater
