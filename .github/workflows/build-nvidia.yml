@@ -67,18 +67,17 @@ jobs:
           $url = "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/1.20.1/$name"
           $package = Join-Path $env:RUNNER_TEMP $name
           Invoke-WebRequest -Uri $url -OutFile $package -ErrorAction Stop
-          $expected = (Invoke-WebRequest -Uri "$url.sha512" -ErrorAction Stop).Content.Trim()
-          $hashBytes = [System.Security.Cryptography.SHA512]::HashData(
-            [System.IO.File]::ReadAllBytes($package))
-          $actual = [Convert]::ToBase64String($hashBytes)
-          if ($actual -ne $expected) { throw 'Official NuGet SHA512 mismatch' }
+          # The flat-container .nupkg.sha512 URL is not available for this
+          # package. Verify the NuGet author/repository signature instead.
+          & dotnet nuget verify $package --all
+          if ($LASTEXITCODE -ne 0) { throw 'Official NuGet package signature verification failed' }
           $zip = Join-Path $env:RUNNER_TEMP 'onnxruntime-1.20.1.zip'
           Copy-Item $package $zip
           $checksum = (Get-FileHash -Path $zip -Algorithm SHA256).Hash.ToLowerInvariant()
           $urlLocal = ([System.Uri]::new($zip)).AbsoluteUri
           "ORT_ZIP_URL=$urlLocal" >> $env:GITHUB_ENV
           "ORT_ZIP_SHA256=$checksum" >> $env:GITHUB_ENV
-          Write-Output 'Verified official NuGet package (no untrusted mirror).'
+          Write-Output 'Verified signed official NuGet package and pinned its SHA256 for CMake.'
 
       - name: Build Windows x64 NVIDIA
         run: |
