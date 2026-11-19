@@ -60,18 +60,37 @@ if(APPLE)
       ${CMAKE_INSTALL_NAME_TOOL} -change "@rpath/libonnxruntime.${Onnxruntime_VERSION}.dylib"
       "@loader_path/../Frameworks/libonnxruntime.${Onnxruntime_VERSION}.dylib" $<TARGET_FILE:${CMAKE_PROJECT_NAME}>)
 elseif(MSVC)
-  add_library(Ort INTERFACE)
-  set(Onnxruntime_LIB_NAMES onnxruntime;onnxruntime_providers_shared)
-  foreach(lib_name IN LISTS Onnxruntime_LIB_NAMES)
-    add_library(Ort::${lib_name} SHARED IMPORTED)
-    set_target_properties(Ort::${lib_name} PROPERTIES IMPORTED_IMPLIB ${onnxruntime_SOURCE_DIR}/lib/${lib_name}.lib)
-    set_target_properties(Ort::${lib_name} PROPERTIES IMPORTED_LOCATION ${onnxruntime_SOURCE_DIR}/lib/${lib_name}.dll)
-    set_target_properties(Ort::${lib_name} PROPERTIES INTERFACE_INCLUDE_DIRECTORIES ${onnxruntime_SOURCE_DIR}/include)
-    target_link_libraries(Ort INTERFACE Ort::${lib_name})
-    install(FILES ${onnxruntime_SOURCE_DIR}/lib/${lib_name}.dll DESTINATION "obs-plugins/64bit")
-  endforeach()
+  # GitHub release artifacts may be unavailable; the official Microsoft NuGet
+  # package has a different directory layout. Support both without changing
+  # the ONNX Runtime ABI or the pinned version.
+  if(EXISTS "${onnxruntime_SOURCE_DIR}/runtimes/win-x64/native/onnxruntime.lib")
+    set(Onnxruntime_WIN_LIB_DIR "${onnxruntime_SOURCE_DIR}/runtimes/win-x64/native")
+    set(Onnxruntime_WIN_INCLUDE_DIR "${onnxruntime_SOURCE_DIR}/build/native/include")
+  else()
+    set(Onnxruntime_WIN_LIB_DIR "${onnxruntime_SOURCE_DIR}/lib")
+    set(Onnxruntime_WIN_INCLUDE_DIR "${onnxruntime_SOURCE_DIR}/include")
+  endif()
 
+  add_library(Ort INTERFACE)
+  foreach(lib_name IN ITEMS onnxruntime onnxruntime_providers_shared)
+    if(EXISTS "${Onnxruntime_WIN_LIB_DIR}/${lib_name}.dll" AND
+       EXISTS "${Onnxruntime_WIN_LIB_DIR}/${lib_name}.lib")
+      add_library(Ort::${lib_name} SHARED IMPORTED)
+      set_target_properties(Ort::${lib_name} PROPERTIES
+        IMPORTED_IMPLIB "${Onnxruntime_WIN_LIB_DIR}/${lib_name}.lib"
+        IMPORTED_LOCATION "${Onnxruntime_WIN_LIB_DIR}/${lib_name}.dll"
+        INTERFACE_INCLUDE_DIRECTORIES "${Onnxruntime_WIN_INCLUDE_DIR}")
+      target_link_libraries(Ort INTERFACE Ort::${lib_name})
+    elseif(lib_name STREQUAL "onnxruntime")
+      message(FATAL_ERROR "Official ONNX Runtime package lacks required Windows x64 import library / DLL")
+    endif()
+    if(EXISTS "${Onnxruntime_WIN_LIB_DIR}/${lib_name}.dll")
+      install(FILES "${Onnxruntime_WIN_LIB_DIR}/${lib_name}.dll"
+        DESTINATION "obs-plugins/64bit")
+    endif()
+  endforeach()
   target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE Ort)
+  target_include_directories(${CMAKE_PROJECT_NAME} SYSTEM PRIVATE "${Onnxruntime_WIN_INCLUDE_DIR}")
 
 else()
   set(Onnxruntime_LINK_LIBS "${onnxruntime_SOURCE_DIR}/lib/libonnxruntime.so.${Onnxruntime_VERSION}")
