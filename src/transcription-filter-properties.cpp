@@ -15,10 +15,13 @@
 #include "ui/model-library-dialog.h"
 #include "translation/language_codes.h"
 #include "translation/language-shortlist.h"
+#include "translation/language-config.h"
+#include "ui/language-library-dialog.h"
 #include "translation/cloud-translation/openai-model-config.h"
 #include "ui/filter-replace-dialog.h"
 #include "ui/filter-replace-utils.h"
 
+#include <algorithm>
 #include <optional>
 #include <string>
 #include <vector>
@@ -187,12 +190,18 @@ bool external_model_file_selection(void *data_, obs_properties_t *props, obs_pro
 			obs_data_set_string(settings, "whisper_language_select", "en");
 		} else {
 			obs_property_list_add_string(prop_lang, "Auto detect", "auto");
-			for (const auto &language : localvocal::short_language_choices())
-				obs_property_list_add_string(prop_lang, language.name,
-							     language.whisper_code);
+			for (const auto &language : localvocal::visible_languages())
+				obs_property_list_add_string(prop_lang, language.name.c_str(),
+							     language.code.c_str());
 			const std::string current = obs_data_get_string(settings,
 							     "whisper_language_select");
-			if (!localvocal::is_short_source_language(current))
+			const auto visible = localvocal::visible_languages();
+			const bool allowed =
+				current == "auto" ||
+				std::any_of(visible.begin(), visible.end(), [&current](const auto &item) {
+					return item.code == current;
+				});
+			if (!allowed)
 				obs_data_set_string(settings, "whisper_language_select", "auto");
 		}
 		gf_->whisper_model_loaded_new = false;
@@ -403,8 +412,8 @@ void add_translation_cloud_group_properties(obs_properties_t *ppts)
 		translation_cloud_group, "translate_cloud_target_language", MT_("target_language"),
 		OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
 	// Compact operator language list; preserve existing engine language mappings.
-	for (const auto &language : localvocal::short_language_choices())
-		obs_property_list_add_string(prop_tgt, language.name, language.cloud_code);
+	for (const auto &language : localvocal::visible_languages())
+		obs_property_list_add_string(prop_tgt, language.name.c_str(), language.code.c_str());
 	// add option for routing the translation to an output source
 	obs_property_t *prop_output = obs_properties_add_list(
 		translation_cloud_group, "translate_cloud_output", MT_("translate_output"),
@@ -496,8 +505,8 @@ void add_translation_group_properties(obs_properties_t *ppts)
 	obs_properties_add_bool(translation_group, "translate_only_full_sentences",
 				MT_("translate_only_full_sentences"));
 
-	for (const auto &language : localvocal::short_language_choices())
-		obs_property_list_add_string(prop_tgt, language.name, language.local_code);
+	for (const auto &language : localvocal::visible_languages())
+		obs_property_list_add_string(prop_tgt, language.name.c_str(), language.local_code.c_str());
 	// add option for routing the translation to an output source
 	obs_property_t *prop_output = obs_properties_add_list(translation_group, "translate_output",
 							      MT_("translate_output"),
@@ -560,9 +569,9 @@ void add_webvtt_group_properties(obs_properties_t *ppts)
 			webvtt_group, name_buffer->array, description_buffer->array,
 			OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
 		obs_property_list_add_string(language_select, "None", "");
-		for (const auto &language : localvocal::short_language_choices())
-			obs_property_list_add_string(language_select, language.name,
-						     language.whisper_code);
+		for (const auto &language : localvocal::visible_languages())
+			obs_property_list_add_string(language_select, language.name.c_str(),
+						     language.code.c_str());
 	}
 }
 #endif
@@ -731,9 +740,24 @@ void add_general_group_properties(obs_properties_t *ppts)
 		obs_properties_add_list(general_group, "whisper_language_select", MT_("language"),
 					OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
 	obs_property_list_add_string(whisper_language_select_list, "Auto detect", "auto");
-	for (const auto &language : localvocal::short_language_choices())
-		obs_property_list_add_string(whisper_language_select_list, language.name,
-					     language.whisper_code);
+	for (const auto &language : localvocal::visible_languages())
+		obs_property_list_add_string(whisper_language_select_list, language.name.c_str(),
+					     language.code.c_str());
+	obs_properties_add_button(
+		general_group, "manage_languages", "Manage Languages (search / show)",
+		[](obs_properties_t *props, obs_property_t *) {
+			open_localvocal_language_library(
+				(QWidget *)obs_frontend_get_main_window());
+			auto *selector = obs_properties_get(props, "whisper_language_select");
+			if (selector) {
+				obs_property_list_clear(selector);
+				obs_property_list_add_string(selector, "Auto detect", "auto");
+				for (const auto &language : localvocal::visible_languages())
+					obs_property_list_add_string(
+						selector, language.name.c_str(), language.code.c_str());
+			}
+			return true;
+		});
 }
 
 void add_partial_group_properties(obs_properties_t *ppts)
