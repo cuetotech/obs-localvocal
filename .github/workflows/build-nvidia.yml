@@ -74,8 +74,10 @@ jobs:
           $zip = Join-Path $env:RUNNER_TEMP 'onnxruntime-1.20.1.zip'
           Copy-Item $package $zip
           $checksum = (Get-FileHash -Path $zip -Algorithm SHA256).Hash.ToLowerInvariant()
-          $urlLocal = ([System.Uri]::new($zip)).AbsoluteUri
-          "ORT_ZIP_URL=$urlLocal" >> $env:GITHUB_ENV
+          # CMake FetchContent on Windows needs the native absolute path, not file:///D:/...
+          # (the URI form was parsed as /D:/... and broke run #45).
+          $nativePath = (Resolve-Path -LiteralPath $zip).ProviderPath.Replace('\', '/')
+          "ORT_ZIP_URL=$nativePath" >> $env:GITHUB_ENV
           "ORT_ZIP_SHA256=$checksum" >> $env:GITHUB_ENV
           Write-Output 'Verified signed official NuGet package and pinned its SHA256 for CMake.'
 
