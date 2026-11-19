@@ -18,12 +18,12 @@ jobs:
       - name: Apply upstream formatters
         run: |
           set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq clang-format-16 python3-venv
-          python3 -m venv /tmp/localvocal-format
-          /tmp/localvocal-format/bin/pip -q install cmakelang==0.6.13
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          brew install --quiet obsproject/tools/clang-format@16
+          python3 -m pip install --user --break-system-packages cmakelang==0.6.13
+          export PATH="/home/linuxbrew/.linuxbrew/opt/clang-format@16/bin:$HOME/.local/bin:$PATH"
           clang-format-16 -i src/transcription-filter.cpp src/translation/cloud-translation/google-cloud.cpp src/translation/cloud-translation/html-entities.h src/translation/translation.cpp
-          /tmp/localvocal-format/bin/cmake-format -i src/tests/CMakeLists.txt tests/upstream-reliability/CMakeLists.txt
+          cmake-format -i src/tests/CMakeLists.txt tests/upstream-reliability/CMakeLists.txt
           git diff --check
           git status --short
       - name: Commit formatted source
