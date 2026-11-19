@@ -272,7 +272,7 @@ void add_transcription_group_properties(obs_properties_t *ppts,
 		"Manage Models (search / download)",
 		[](obs_properties_t *props, obs_property_t *, void *data_) {
 			open_localvocal_model_library(
-				(QWidget *)obs_frontend_get_main_window());
+				(QWidget *)obs_frontend_get_main_window(), MODEL_TYPE_TRANSCRIPTION);
 			obs_property_t *selector = obs_properties_get(props, "whisper_model_path");
 			if (selector) {
 				obs_property_list_clear(selector);
@@ -484,19 +484,41 @@ void add_translation_group_properties(obs_properties_t *ppts)
 	obs_property_t *prop_translate_model = obs_properties_add_list(
 		translation_group, "translate_model", MT_("translate_model"), OBS_COMBO_TYPE_LIST,
 		OBS_COMBO_FORMAT_STRING);
-	// Populate the dropdown with the translation models
-	// add "Whisper-Based Translation" option
+	// Keep this selector limited to built-in and downloaded local models.
 	obs_property_list_add_string(prop_translate_model, MT_("Whisper-Based-Translation"),
 				     "whisper-based-translation");
 	for (const auto &model_info : models_info()) {
-		if (model_info.second.type == MODEL_TYPE_TRANSLATION) {
+		if (model_info.second.type == MODEL_TYPE_TRANSLATION &&
+		    localvocal::model_installed_locally(model_info.second))
 			obs_property_list_add_string(prop_translate_model, model_info.first.c_str(),
 						     model_info.first.c_str());
-		}
 	}
-	// add external model option
+	// Retain the legacy external folder route, which never downloads anything.
 	obs_property_list_add_string(prop_translate_model, MT_("load_external_model"),
 				     "!!!external!!!");
+	obs_properties_add_button2(
+		translation_group, "manage_translation_models",
+		"Manage Models (search / download)",
+		[](obs_properties_t *props, obs_property_t *, void *) {
+			open_localvocal_model_library(
+				(QWidget *)obs_frontend_get_main_window(), MODEL_TYPE_TRANSLATION);
+			auto *selector = obs_properties_get(props, "translate_model");
+			if (selector) {
+				obs_property_list_clear(selector);
+				obs_property_list_add_string(
+					selector, MT_("Whisper-Based-Translation"),
+					"whisper-based-translation");
+				for (const auto &entry : models_info()) {
+					if (entry.second.type == MODEL_TYPE_TRANSLATION &&
+					    localvocal::model_installed_locally(entry.second))
+						obs_property_list_add_string(
+							selector, entry.first.c_str(), entry.first.c_str());
+				}
+				obs_property_list_add_string(selector,
+							     MT_("load_external_model"), "!!!external!!!");
+			}
+			return true;
+		}, nullptr);
 	// add callback to handle the external model file selection
 	obs_properties_add_path(translation_group, "translation_model_path_external",
 				MT_("external_model_folder"), OBS_PATH_DIRECTORY,
