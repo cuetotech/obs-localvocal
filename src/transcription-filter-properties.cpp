@@ -13,6 +13,7 @@
 #include "model-utils/model-downloader-types.h"
 #include "translation/language_codes.h"
 #include "translation/language-shortlist.h"
+#include "translation/cloud-translation/openai-model-config.h"
 #include "ui/filter-replace-dialog.h"
 #include "ui/filter-replace-utils.h"
 
@@ -55,6 +56,7 @@ bool translation_cloud_provider_selection_callback(obs_properties_t *props, obs_
 	const char *provider = obs_data_get_string(s, "translate_cloud_provider");
 	const bool openai = strcmp(provider, "openai") == 0;
 	for (const auto &name : {"translate_cloud_openai_model",
+				 "translate_cloud_openai_catalog_info",
 				 "translate_cloud_openai_context",
 				 "translate_cloud_openai_sermon_context_card",
 				 "translate_cloud_openai_sermon_card_help",
@@ -102,7 +104,8 @@ bool translation_cloud_options_callback(obs_properties_t *props, obs_property_t 
 	      "translate_cloud_only_full_sentences", "translate_cloud_secret_key",
 	      "translate_cloud_deepl_free", "translate_cloud_region", "translate_cloud_endpoint",
 	      "translate_cloud_body", "translate_cloud_response_json_path",
-	      "translate_cloud_openai_model", "translate_cloud_openai_context",
+	      "translate_cloud_openai_model", "translate_cloud_openai_catalog_info",
+	      "translate_cloud_openai_context",
 	      "translate_cloud_openai_sermon_context_card",
 	      "translate_cloud_openai_sermon_card_help",
 	      "translate_cloud_openai_store_response", "translate_cloud_openai_reasoning_effort",
@@ -301,13 +304,31 @@ void add_translation_cloud_group_properties(obs_properties_t *ppts)
 					   translation_cloud_provider_selection_callback);
 
 	// Explicitly opt in to OpenAI. Changing these settings never changes Google defaults.
+	// The model choices come from operator-editable JSON in the OBS profile.
+	// A fixed-choice dropdown ensures only exact API model IDs are stored;
+	// editable Qt combos can accidentally commit their human-readable labels.
+	const auto model_catalog = localvocal::read_openai_model_catalog();
 	obs_property_t *openai_model = obs_properties_add_list(
 		translation_cloud_group, "translate_cloud_openai_model", "OpenAI model",
-		OBS_COMBO_TYPE_EDITABLE, OBS_COMBO_FORMAT_STRING);
-	// Enter newly available Responses API model IDs here without rebuilding.
-	obs_property_list_add_string(openai_model, "GPT-6 Luna (lower cost)", "gpt-6-luna");
-	obs_property_list_add_string(openai_model, "GPT-6.1 Terra (quality trial)",
-				     "gpt-6.1-terra");
+		OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
+	for (const auto &choice : model_catalog.models)
+		obs_property_list_add_string(openai_model, choice.label.c_str(),
+					     choice.id.c_str());
+	if (!model_catalog.error.empty()) {
+		obs_property_list_add_string(openai_model,
+					     "MODEL LIST ERROR - fix openai-models.json",
+					     "__catalog_error__");
+		obs_log(LOG_WARNING, "OpenAI model catalog: %s", model_catalog.error.c_str());
+	}
+	const std::string catalog_hint =
+		model_catalog.error.empty()
+			? "Edit model IDs and labels in " + model_catalog.path +
+				  " then reopen LocalVocal Filters. Pick a model your API key can access."
+			: "OpenAI model list ERROR: " + model_catalog.error +
+				  ". File: " + model_catalog.path;
+	obs_properties_add_text(translation_cloud_group,
+				"translate_cloud_openai_catalog_info",
+				catalog_hint.c_str(), OBS_TEXT_INFO);
 	obs_property_t *openai_context = obs_properties_add_list(
 		translation_cloud_group, "translate_cloud_openai_context",
 		"Previous finalized source-language segments", OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_INT);
