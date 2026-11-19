@@ -11,6 +11,8 @@
 #include "whisper-utils/vad-processing.h"
 #include "whisper-utils/whisper-params.h"
 #include "model-utils/model-downloader-types.h"
+#include "model-utils/installed-models.h"
+#include "ui/model-library-dialog.h"
 #include "translation/language_codes.h"
 #include "translation/language-shortlist.h"
 #include "translation/cloud-translation/openai-model-config.h"
@@ -226,18 +228,56 @@ void add_transcription_group_properties(obs_properties_t *ppts,
 	obs_properties_add_group(ppts, "transcription_group", MT_("transcription_group"),
 				 OBS_GROUP_NORMAL, transcription_group);
 
-	// Add a list of available whisper models to download
+	// Only locally installed Whisper models belong in the live selector.
+	// The offline, searchable catalog is accessed through Manage Models.
 	obs_property_t *whisper_models_list = obs_properties_add_list(
 		transcription_group, "whisper_model_path", MT_("whisper_model"),
 		OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
-	obs_property_list_add_string(whisper_models_list, "Load external model file",
-				     "!!!external!!!");
-	// Add models from models_info map
-	for (const auto &model_info :
+	int installed_models = 0;
+	for (const auto &model :
 	     get_sorted_models_info(std::optional<ModelType>{MODEL_TYPE_TRANSCRIPTION})) {
-		obs_property_list_add_string(whisper_models_list, model_info.friendly_name.c_str(),
-					     model_info.friendly_name.c_str());
+		if (!localvocal::model_installed_locally(model))
+			continue;
+		obs_property_list_add_string(whisper_models_list, model.friendly_name.c_str(),
+					     model.friendly_name.c_str());
+		++installed_models;
 	}
+	// Preserve legacy external-file selections without adding an import
+	// placeholder to every user's dropdown.
+	obs_data_t *current = gf && gf->context ? obs_source_get_settings(gf->context) : nullptr;
+	if (current) {
+		const std::string saved = obs_data_get_string(current, "whisper_model_path");
+		if (saved == "!!!external!!!")
+			obs_property_list_add_string(whisper_models_list,
+						     "External model (selected local file)",
+						     "!!!external!!!");
+		obs_data_release(current);
+	}
+	if (installed_models == 0)
+		obs_properties_add_text(transcription_group, "no_installed_models",
+					"No installed Whisper models detected. "
+					"Use Manage Models to download one before starting transcription.",
+					OBS_TEXT_INFO);
+	obs_properties_add_button2(
+		transcription_group, "manage_whisper_models",
+		"Manage Models (search / download)",
+		[](obs_properties_t *props, obs_property_t *, void *data_) {
+			UNUSED_PARAMETER(data_);
+			open_localvocal_model_library(
+				(QWidget *)obs_frontend_get_main_window());
+			obs_property_t *selector = obs_properties_get(props, "whisper_model_path");
+			if (selector) {
+				obs_property_list_clear(selector);
+				for (const auto &model : get_sorted_models_info(
+					     std::optional<ModelType>{MODEL_TYPE_TRANSCRIPTION}))
+					if (localvocal::model_installed_locally(model))
+						obs_property_list_add_string(
+							selector, model.friendly_name.c_str(),
+							model.friendly_name.c_str());
+			}
+			return true;
+		},
+		gf);
 
 	// Add a file selection input to select an external model file
 	obs_properties_add_path(transcription_group, "whisper_model_path_external",
