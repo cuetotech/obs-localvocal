@@ -7,11 +7,9 @@
 #include <map>
 #include <memory>
 #include <optional>
-#include <sstream>
 #include <string>
 
 #include <nlohmann/json.hpp>
-#include <curl/curl.h>
 
 static size_t WriteCallback(void *contents, size_t size, size_t nmemb, void *userp)
 {
@@ -19,66 +17,9 @@ static size_t WriteCallback(void *contents, size_t size, size_t nmemb, void *use
 	return size * nmemb;
 }
 
-/**
- * @brief Downloads a JSON file from a specified GitHub URL.
- *
- * This function uses libcurl to download a JSON file from a GitHub repository.
- * The downloaded content is stored in the provided string reference.
- *
- * @param json_content A reference to a string where the downloaded JSON content will be stored.
- * @return true if the download was successful and the HTTP response code was 200, false otherwise.
- *
- * The function performs the following steps:
- * - Initializes a CURL session.
- * - Sets the URL to download the JSON from.
- * - Sets the callback function to write the downloaded data.
- * - Follows redirects and sets a timeout of 10 seconds.
- * - Performs the download operation.
- * - Checks for errors and logs them using obs_log.
- * - Cleans up the CURL session.
- * - Checks the HTTP response code to ensure it is 200 (OK).
- */
-bool download_json_from_github(std::string &json_content)
-{
-	CURL *curl;
-	CURLcode res;
-	std::string readBuffer;
-	long http_code = 0;
-
-	curl = curl_easy_init();
-	if (curl) {
-		curl_easy_setopt(
-			curl, CURLOPT_URL,
-			"https://raw.githubusercontent.com/locaal-ai/obs-localvocal/master/data/models/models_directory.json");
-		curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
-		curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
-		curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L); // Follow redirects
-		curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);       // Set a timeout (10 seconds)
-
-		res = curl_easy_perform(curl);
-
-		if (res != CURLE_OK) {
-			obs_log(LOG_ERROR, "Failed to download JSON from GitHub: %s",
-				curl_easy_strerror(res));
-			curl_easy_cleanup(curl);
-			return false;
-		}
-
-		curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
-		curl_easy_cleanup(curl);
-
-		if (http_code != 200) {
-			obs_log(LOG_ERROR, "HTTP error: %ld", http_code);
-			return false;
-		}
-	} else {
-		obs_log(LOG_ERROR, "Failed to initialize curl");
-		return false;
-	}
-
-	json_content = readBuffer;
-	return true;
-}
+// The installed-model picker must not perform networking during OBS startup.
+// Browse the bundled, offline catalog in Manage Models instead. Updates to the
+// catalog are a deliberate operator action, never an automatic fetch.
 
 /**
  * @brief Parses a JSON object to extract model information.
@@ -188,65 +129,40 @@ std::optional<ModelInfo> parse_model_json(const nlohmann::json &model)
 }
 
 /**
- * @brief Loads model information from a JSON source.
- *
- * This function attempts to download a JSON file containing model information from GitHub.
- * If the download fails, it falls back to loading the JSON file from a local directory.
- * The JSON file is expected to contain an array of models under the key "models".
- * Each model's information is parsed and stored in a map with the model's friendly name as the key.
- *
- * @return A map where the keys are model friendly names and the values are ModelInfo objects.
+ * Load the shipped model catalog offline. This function is invoked by OBS
+ * filter property construction, so a network request here stalls startup.
  */
 std::map<std::string, ModelInfo> load_models_info()
 {
-	std::map<std::string, ModelInfo> models_info_map;
-	nlohmann::json model_directory_json;
-
-	// Try to download from GitHub first
-	std::string github_json_content;
-	bool download_success = download_json_from_github(github_json_content);
-
-	if (download_success) {
-		obs_log(LOG_INFO, "Successfully downloaded models directory from GitHub");
-		std::istringstream json_stream(github_json_content);
-		json_stream >> model_directory_json;
-	} else {
-		// Fall back to local file
-		obs_log(LOG_INFO, "Falling back to local models directory file");
-		char *model_directory_json_file = obs_module_file("models/models_directory.json");
-		if (model_directory_json_file == nullptr) {
-			obs_log(LOG_ERROR, "Cannot find local model directory file");
-			return models_info_map;
-		}
-		obs_log(LOG_INFO, "Local model directory file: %s", model_directory_json_file);
-		std::string model_directory_file_str = std::string(model_directory_json_file);
-		bfree(model_directory_json_file);
-
-		std::ifstream model_directory_file(model_directory_file_str);
-		if (!model_directory_file.is_open()) {
-			obs_log(LOG_ERROR, "Failed to open local model directory file");
-			return models_info_map;
-		}
-
-		model_directory_file >> model_directory_json;
+	std::map<std::string, ModelInfo> result;
+	char *catalog_path = obs_module_file("models/models_directory.json");
+	if (!catalog_path) {
+		obs_log(LOG_ERROR, "Bundled LocalVocal model directory unavailable");
+		return result;
 	}
-
-	if (!model_directory_json.contains("models") ||
-	    !model_directory_json["models"].is_array()) {
-		obs_log(LOG_ERROR, "Invalid JSON structure: 'models' array not found");
-		return models_info_map;
-	}
-
-	for (const auto &model : model_directory_json["models"]) {
-		auto model_info_opt = parse_model_json(model);
-		if (model_info_opt) {
-			models_info_map[model_info_opt->friendly_name] = *model_info_opt;
+	const std::string path = catalog_path;
+	bfree(catalog_path);
+	try {
+		std::ifstream input(path, std::ios::binary);
+		if (!input)
+			throw std::runtime_error("Cannot open bundled model catalog");
+		const auto catalog = nlohmann::json::parse(input);
+		if (!catalog.is_object() || !catalog.contains("models") ||
+		    !catalog["models"].is_array())
+			throw std::runtime_error("Bundled model catalog has no models array");
+		for (const auto &entry : catalog["models"]) {
+			auto model = parse_model_json(entry);
+			if (model && !model->friendly_name.empty() &&
+			    !model->local_folder_name.empty() && !model->files.empty())
+				result[model->friendly_name] = *model;
 		}
+	} catch (const std::exception &ex) {
+		obs_log(LOG_ERROR, "Cannot load bundled LocalVocal model catalog: %s",
+			ex.what());
 	}
-
-	obs_log(LOG_INFO, "Loaded %zu models", models_info_map.size());
-
-	return models_info_map;
+	obs_log(LOG_INFO, "Loaded %zu offline model catalog entries (no startup download)",
+		result.size());
+	return result;
 }
 
 const std::map<std::string, ModelInfo> &models_info()
