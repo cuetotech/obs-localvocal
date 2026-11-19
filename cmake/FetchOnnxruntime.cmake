@@ -53,9 +53,14 @@ endif()
 
 if(APPLE)
   if(Onnxruntime_IS_NUGET)
-    if(CMAKE_OSX_ARCHITECTURES MATCHES "arm64" AND NOT CMAKE_OSX_ARCHITECTURES MATCHES "x86_64")
+    # CI selects the build-only arch with MACOS_ARCH rather than at configure.
+    if(DEFINED ENV{MACOS_ARCH} AND "$ENV{MACOS_ARCH}" STREQUAL "arm64")
       set(Onnxruntime_MAC_RID "osx-arm64")
-    elseif(CMAKE_OSX_ARCHITECTURES MATCHES "x86_64" AND NOT CMAKE_OSX_ARCHITECTURES MATCHES "arm64")
+    elseif(DEFINED ENV{MACOS_ARCH} AND "$ENV{MACOS_ARCH}" STREQUAL "x86_64")
+      set(Onnxruntime_MAC_RID "osx-x64")
+    elseif(CMAKE_OSX_ARCHITECTURES STREQUAL "arm64")
+      set(Onnxruntime_MAC_RID "osx-arm64")
+    elseif(CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64")
       set(Onnxruntime_MAC_RID "osx-x64")
     elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
       set(Onnxruntime_MAC_RID "osx-arm64")
@@ -66,7 +71,16 @@ if(APPLE)
     if(NOT EXISTS "${Onnxruntime_MAC_LIBDIR}/libonnxruntime.dylib")
       message(FATAL_ERROR "Official NuGet package lacks ${Onnxruntime_MAC_RID}/libonnxruntime.dylib")
     endif()
-    install_library_to_bundle("${Onnxruntime_MAC_LIBDIR}" libonnxruntime.dylib BUILD_DEPENDENCY)
+    # The macOS bundle helper expects <root>/lib/<library>. NuGet stores its
+    # native files under runtimes/<rid>/native; stage the verified dylib into
+    # the helper's expected layout without changing the library version.
+    set(Onnxruntime_MAC_BUNDLE_DIR "${CMAKE_CURRENT_BINARY_DIR}/onnxruntime-nuget-bundle")
+    file(MAKE_DIRECTORY "${Onnxruntime_MAC_BUNDLE_DIR}/lib"
+         "${Onnxruntime_MAC_BUNDLE_DIR}/include")
+    file(COPY_FILE "${Onnxruntime_MAC_LIBDIR}/libonnxruntime.dylib"
+         "${Onnxruntime_MAC_BUNDLE_DIR}/lib/libonnxruntime.dylib"
+         ONLY_IF_DIFFERENT)
+    install_library_to_bundle("${Onnxruntime_MAC_BUNDLE_DIR}" libonnxruntime.dylib BUILD_DEPENDENCY)
     target_include_directories(${CMAKE_PROJECT_NAME} SYSTEM PRIVATE "${Onnxruntime_INCLUDE_DIR}")
   else()
     install_library_to_bundle("${onnxruntime_SOURCE_DIR}" libonnxruntime.${Onnxruntime_VERSION}.dylib BUILD_DEPENDENCY)
