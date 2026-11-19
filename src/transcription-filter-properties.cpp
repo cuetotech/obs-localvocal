@@ -271,7 +271,6 @@ void add_transcription_group_properties(obs_properties_t *ppts,
 		transcription_group, "manage_whisper_models",
 		"Manage Models (search / download)",
 		[](obs_properties_t *props, obs_property_t *, void *data_) {
-			UNUSED_PARAMETER(data_);
 			open_localvocal_model_library(
 				(QWidget *)obs_frontend_get_main_window());
 			obs_property_t *selector = obs_properties_get(props, "whisper_model_path");
@@ -283,6 +282,20 @@ void add_transcription_group_properties(obs_properties_t *ppts,
 						obs_property_list_add_string(
 							selector, model.friendly_name.c_str(),
 							model.friendly_name.c_str());
+				// Preserve the operator's pre-existing external .bin selection.
+				auto *filter = static_cast<transcription_filter_data *>(data_);
+				obs_data_t *saved = filter && filter->context
+							  ? obs_source_get_settings(filter->context)
+							  : nullptr;
+				if (saved) {
+					const std::string current =
+						obs_data_get_string(saved, "whisper_model_path");
+					if (current == "!!!external!!!")
+						obs_property_list_add_string(
+							selector, "External model (selected local file)",
+							"!!!external!!!");
+					obs_data_release(saved);
+				}
 			}
 			return true;
 		},
@@ -743,9 +756,9 @@ void add_general_group_properties(obs_properties_t *ppts)
 	for (const auto &language : localvocal::visible_languages())
 		obs_property_list_add_string(whisper_language_select_list, language.name.c_str(),
 					     language.code.c_str());
-	obs_properties_add_button(
+	obs_properties_add_button2(
 		general_group, "manage_languages", "Manage Languages (search / show)",
-		[](obs_properties_t *props, obs_property_t *) {
+		[](obs_properties_t *props, obs_property_t *, void *) {
 			open_localvocal_language_library(
 				(QWidget *)obs_frontend_get_main_window());
 			auto *selector = obs_properties_get(props, "whisper_language_select");
@@ -757,7 +770,7 @@ void add_general_group_properties(obs_properties_t *ppts)
 						selector, language.name.c_str(), language.code.c_str());
 			}
 			return true;
-		});
+		}, nullptr);
 }
 
 void add_partial_group_properties(obs_properties_t *ppts)
