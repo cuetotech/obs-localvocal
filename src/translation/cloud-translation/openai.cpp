@@ -1,6 +1,7 @@
 #include "openai.h"
 #include "openai-responses.h"
 #include "openai-request.h"
+#include "openai-model-config.h"
 #include "translation/language_codes.h"
 #include "plugin-support.h"
 #include <obs-module.h>
@@ -87,6 +88,14 @@ std::string OpenAITranslator::translate(const std::string &text, const std::stri
 		throw TranslationError("Source segment exceeds OpenAI size limit");
 
 	const std::string model = localvocal::validated_openai_model(config_.model);
+	// The runtime uses the exact ID selected from the operator's catalog,
+	// never a display label. Removing a model from JSON disables it rather
+	// than silently falling back or continuing to use an obsolete ID.
+	const auto catalog = localvocal::read_openai_model_catalog();
+	if (!catalog.error.empty())
+		throw TranslationError("OpenAI model list error: " + catalog.error);
+	if (!localvocal::openai_catalog_contains(catalog, model))
+		throw TranslationError("OpenAI model ID is not in openai-models.json: " + model);
 	const auto &usage = config_.openai_usage;
 	// A local estimate cannot safely enforce a dollar cap on an unknown model.
 	if (config_.openai_session_limit_usd > 0.0 &&
@@ -151,8 +160,23 @@ std::string OpenAITranslator::translate(const std::string &text, const std::stri
 				       std::string(curl_easy_strerror(result)));
 	long status = 0;
 	curl_easy_getinfo(curl.get(), CURLINFO_RESPONSE_CODE, &status);
-	if (status != 200)
-		throw TranslationError("OpenAI HTTP status " + std::to_string(status));
+	if (status != 200) {
+		// Surface the provider's *error code* so operators can distinguish a
+		// nonexistent model from missing API access or unsupported reasoning.
+		// Never echo a whole request/response body or an API key to the log.
+		std::string detail;
+		const auto error_json = json::parse(response, nullptr, false);
+		if (error_json.is_object() && error_json.contains("error") &&
+		    error_json["error"].is_object()) {
+			const auto &error = error_json["error"];
+			if (error.contains("code") && error["code"].is_string())
+				detail = error["code"].get<std::string>().substr(0, 80);
+			else if (error.contains("type") && error["type"].is_string())
+				detail = error["type"].get<std::string>().substr(0, 80);
+		}
+		throw TranslationError("OpenAI HTTP status " + std::to_string(status) +
+				       (detail.empty() ? "" : " (" + detail + ")"));
+	}
 	if (config_.cancelled && config_.cancelled->load())
 		throw TranslationError("OpenAI response was cancelled");
 
