@@ -1,0 +1,20 @@
+name: Upstream reliability regression
+on:
+  push:
+    branches:
+      - 'contrib/upstream-reliability-*'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  source-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Configure isolated regression tests
+        run: cmake -S tests/upstream-reliability -B build-upstream-reliability -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build-upstream-reliability --parallel 2
+      - name: Run
+        run: ctest --test-dir build-upstream-reliability --output-on-failure
