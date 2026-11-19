@@ -123,7 +123,7 @@ void send_sentence_to_cloud_translation_async(const std::string &sentence,
 						obs_log(LOG_INFO, "Cloud Translation: '%s' -> '%s'",
 							sentence.c_str(), translated_text.c_str());
 					}
-					gf->last_text_translation = translated_text;
+					gf->last_text_cloud_translation = translated_text;
 					callback(translated_text);
 					return;
 				} else {
