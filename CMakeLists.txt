@@ -184,7 +184,8 @@ target_sources(
           src/translation/translation-utils.cpp
           src/ui/filter-replace-utils.cpp
           src/translation/translation-language-utils.cpp
-          src/ui/filter-replace-dialog.cpp)
+          src/ui/filter-replace-dialog.cpp
+          src/ui/model-library-dialog.cpp)
 
 add_subdirectory(src/translation/cloud-translation)
 
