@@ -44,6 +44,8 @@ inline OpenAIModelCatalog read_openai_model_catalog()
 			if (!output)
 				throw std::runtime_error("Cannot finish writing openai-models.json");
 		}
+		if (std::filesystem::file_size(file) > 64 * 1024)
+			throw std::runtime_error("openai-models.json is too large (64 KiB max)");
 		std::ifstream input(file, std::ios::binary);
 		if (!input)
 			throw std::runtime_error("Cannot read openai-models.json");
