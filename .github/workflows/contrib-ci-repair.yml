@@ -34,7 +34,8 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/transcription-filter.cpp src/translation/cloud-translation/google-cloud.cpp src/translation/cloud-translation/html-entities.h src/translation/translation.cpp src/tests/CMakeLists.txt tests/upstream-reliability/CMakeLists.txt
+          # Some pre-existing tracked test files match the upstream ignore rule.
+          git add -u
           if ! git diff --cached --quiet; then
             git commit -m "style: apply upstream clang-format 16 and cmake-format 0.6.13"
             git push origin HEAD:${GITHUB_REF_NAME}
