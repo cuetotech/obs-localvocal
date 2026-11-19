@@ -11,12 +11,6 @@
 
 #include <nlohmann/json.hpp>
 
-static size_t WriteCallback(void *contents, size_t size, size_t nmemb, void *userp)
-{
-	((std::string *)userp)->append((char *)contents, size * nmemb);
-	return size * nmemb;
-}
-
 // The installed-model picker must not perform networking during OBS startup.
 // Browse the bundled, offline catalog in Manage Models instead. Updates to the
 // catalog are a deliberate operator action, never an automatic fetch.
