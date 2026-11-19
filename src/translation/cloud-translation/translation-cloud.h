@@ -26,8 +26,10 @@ struct CloudTranslatorConfig {
 	std::string response_json_path; // For Custom API
 	std::shared_ptr<std::atomic<bool>> cancelled;
 	long timeout_ms = 5000;
-	std::string openai_context; // Prior finalized Korean sentences, never the current one.
-	bool openai_sermon_profile = true;
+	std::string openai_context; // Previous finalized source-language speech, not the current one.
+	std::string openai_sermon_context_card; // Fixed, reference-only card for this service.
+	bool openai_store_response = false; // Explicit opt-in to OpenAI server-side response retention.
+	std::string openai_reasoning_effort = "none"; // "auto" omits the parameter.
 	double openai_session_limit_usd = 0.0; // 0 disables local spending threshold.
 	std::shared_ptr<OpenAIUsageTracker> openai_usage;
 };
@@ -40,7 +42,8 @@ inline std::string cloud_cache_key(const CloudTranslatorConfig &config, const st
 		     config.provider, config.access_key, config.secret_key, config.region,
 		     config.model, config.free ? "free" : "paid", config.endpoint, config.body,
 		     config.response_json_path, config.openai_context,
-		     config.openai_sermon_profile ? "sermon-v1" : "plain-v1",
+		     config.openai_sermon_context_card, config.openai_reasoning_effort,
+		     config.openai_store_response ? "stored-v1" : "private-v1",
 		     source, target, text})
 		key += std::to_string(value.size()) + ":" + value;
 	return key; // In-memory identity only. Never log this value (it includes credentials).

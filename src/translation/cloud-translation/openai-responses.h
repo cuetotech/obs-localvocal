@@ -43,8 +43,16 @@ inline OpenAITokens response_usage(const nlohmann::json &response)
 
 // Nanodollars (USD * 1e9) allow precise integer accounting at Luna rates.
 // This is an estimate for standard text processing, not an account-wide spend cap.
+// A new model has no trustworthy local rate until it is explicitly added.
+inline bool supports_openai_cost_estimate(const std::string &model)
+{
+	return model == "gpt-6-luna" || model == "gpt-6.1-terra";
+}
+
 inline uint64_t estimate_nano_usd(const std::string &model, OpenAITokens usage)
 {
+	if (!supports_openai_cost_estimate(model))
+		return 0; // Never pretend an unknown model has a known price.
 	const uint64_t in_rate = model == "gpt-6.1-terra" ? 1000 : 100;
 	const uint64_t cached_rate = model == "gpt-6.1-terra" ? 50 : 10;
 	const uint64_t out_rate = model == "gpt-6.1-terra" ? 5000 : 500;
