@@ -22,12 +22,12 @@ else()
   endif()
 endif()
 
-# Microsoft retains the 1.20.1 native binaries in its official NuGet package.
-# The old GitHub release download URLs currently return HTTP 404. This package
-# contains all supported desktop RIDs and the C++ header tree.
+# Microsoft retains the 1.20.1 native binaries in its official NuGet package. The old GitHub release download URLs
+# currently return HTTP 404. This package contains all supported desktop RIDs and the C++ header tree.
 if(USE_PREDEFINED_ONNXRUNTIME)
   set(Onnxruntime_URL
-      "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/${Onnxruntime_VERSION}/microsoft.ml.onnxruntime.${Onnxruntime_VERSION}.nupkg")
+      "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/${Onnxruntime_VERSION}/microsoft.ml.onnxruntime.${Onnxruntime_VERSION}.nupkg"
+  )
   # SHA256 verified from the official signed 1.20.1 package; fail on byte drift.
   set(Onnxruntime_HASH SHA256=9c32108e9a1c78b090a95c2a219f244dd5f067d4caf68fb0f967103f3f20839c)
 else()
@@ -36,7 +36,10 @@ else()
 endif()
 
 if(Onnxruntime_HASH)
-  FetchContent_Declare(onnxruntime URL "${Onnxruntime_URL}" URL_HASH "${Onnxruntime_HASH}")
+  FetchContent_Declare(
+    onnxruntime
+    URL "${Onnxruntime_URL}"
+    URL_HASH "${Onnxruntime_HASH}")
 else()
   FetchContent_Declare(onnxruntime URL "${Onnxruntime_URL}")
 endif()
@@ -71,15 +74,12 @@ if(APPLE)
     if(NOT EXISTS "${Onnxruntime_MAC_LIBDIR}/libonnxruntime.dylib")
       message(FATAL_ERROR "Official NuGet package lacks ${Onnxruntime_MAC_RID}/libonnxruntime.dylib")
     endif()
-    # The macOS bundle helper expects <root>/lib/<library>. NuGet stores its
-    # native files under runtimes/<rid>/native; stage the verified dylib into
-    # the helper's expected layout without changing the library version.
+    # The macOS bundle helper expects <root>/lib/<library>. NuGet stores its native files under runtimes/<rid>/native;
+    # stage the verified dylib into the helper's expected layout without changing the library version.
     set(Onnxruntime_MAC_BUNDLE_DIR "${CMAKE_CURRENT_BINARY_DIR}/onnxruntime-nuget-bundle")
-    file(MAKE_DIRECTORY "${Onnxruntime_MAC_BUNDLE_DIR}/lib"
-         "${Onnxruntime_MAC_BUNDLE_DIR}/include")
+    file(MAKE_DIRECTORY "${Onnxruntime_MAC_BUNDLE_DIR}/lib" "${Onnxruntime_MAC_BUNDLE_DIR}/include")
     file(COPY_FILE "${Onnxruntime_MAC_LIBDIR}/libonnxruntime.dylib"
-         "${Onnxruntime_MAC_BUNDLE_DIR}/lib/libonnxruntime.dylib"
-         ONLY_IF_DIFFERENT)
+         "${Onnxruntime_MAC_BUNDLE_DIR}/lib/libonnxruntime.dylib" ONLY_IF_DIFFERENT)
     install_library_to_bundle("${Onnxruntime_MAC_BUNDLE_DIR}" libonnxruntime.dylib BUILD_DEPENDENCY)
     target_include_directories(${CMAKE_PROJECT_NAME} SYSTEM PRIVATE "${Onnxruntime_INCLUDE_DIR}")
   else()
@@ -90,7 +90,8 @@ if(APPLE)
     POST_BUILD
     COMMAND
       ${CMAKE_INSTALL_NAME_TOOL} -change "@rpath/libonnxruntime.${Onnxruntime_VERSION}.dylib"
-      "@loader_path/../Frameworks/$<IF:$<BOOL:${Onnxruntime_IS_NUGET}>,libonnxruntime.dylib,libonnxruntime.${Onnxruntime_VERSION}.dylib>" $<TARGET_FILE:${CMAKE_PROJECT_NAME}>)
+      "@loader_path/../Frameworks/$<IF:$<BOOL:${Onnxruntime_IS_NUGET}>,libonnxruntime.dylib,libonnxruntime.${Onnxruntime_VERSION}.dylib>"
+      $<TARGET_FILE:${CMAKE_PROJECT_NAME}>)
 elseif(MSVC)
   if(Onnxruntime_IS_NUGET)
     set(Onnxruntime_WIN_LIBDIR "${onnxruntime_SOURCE_DIR}/runtimes/win-x64/native")
@@ -99,16 +100,15 @@ elseif(MSVC)
   endif()
   add_library(Ort INTERFACE)
   foreach(lib_name IN ITEMS onnxruntime onnxruntime_providers_shared)
-    if(EXISTS "${Onnxruntime_WIN_LIBDIR}/${lib_name}.dll" AND
-       EXISTS "${Onnxruntime_WIN_LIBDIR}/${lib_name}.lib")
+    if(EXISTS "${Onnxruntime_WIN_LIBDIR}/${lib_name}.dll" AND EXISTS "${Onnxruntime_WIN_LIBDIR}/${lib_name}.lib")
       add_library(Ort::${lib_name} SHARED IMPORTED)
-      set_target_properties(Ort::${lib_name} PROPERTIES
-        IMPORTED_IMPLIB "${Onnxruntime_WIN_LIBDIR}/${lib_name}.lib"
-        IMPORTED_LOCATION "${Onnxruntime_WIN_LIBDIR}/${lib_name}.dll"
-        INTERFACE_INCLUDE_DIRECTORIES "${Onnxruntime_INCLUDE_DIR}")
+      set_target_properties(
+        Ort::${lib_name}
+        PROPERTIES IMPORTED_IMPLIB "${Onnxruntime_WIN_LIBDIR}/${lib_name}.lib"
+                   IMPORTED_LOCATION "${Onnxruntime_WIN_LIBDIR}/${lib_name}.dll"
+                   INTERFACE_INCLUDE_DIRECTORIES "${Onnxruntime_INCLUDE_DIR}")
       target_link_libraries(Ort INTERFACE Ort::${lib_name})
-      install(FILES "${Onnxruntime_WIN_LIBDIR}/${lib_name}.dll"
-        DESTINATION "obs-plugins/64bit")
+      install(FILES "${Onnxruntime_WIN_LIBDIR}/${lib_name}.dll" DESTINATION "obs-plugins/64bit")
     elseif(lib_name STREQUAL "onnxruntime")
       message(FATAL_ERROR "Official ONNX Runtime package lacks Windows x64 import library or DLL")
     endif()
@@ -123,23 +123,20 @@ else()
     else()
       set(Onnxruntime_LINUX_RID "linux-x64")
     endif()
-    set(Onnxruntime_LINK_LIBS
-        "${onnxruntime_SOURCE_DIR}/runtimes/${Onnxruntime_LINUX_RID}/native/libonnxruntime.so")
+    set(Onnxruntime_LINK_LIBS "${onnxruntime_SOURCE_DIR}/runtimes/${Onnxruntime_LINUX_RID}/native/libonnxruntime.so")
     set(Onnxruntime_INSTALL_LIBS "${Onnxruntime_LINK_LIBS}")
   else()
     set(Onnxruntime_LINK_LIBS "${onnxruntime_SOURCE_DIR}/lib/libonnxruntime.so.${Onnxruntime_VERSION}")
-    set(Onnxruntime_INSTALL_LIBS "${Onnxruntime_LINK_LIBS}"
-        "${onnxruntime_SOURCE_DIR}/lib/libonnxruntime_providers_shared.so"
-        "${onnxruntime_SOURCE_DIR}/lib/libonnxruntime.so"
-        "${onnxruntime_SOURCE_DIR}/lib/libonnxruntime.so.1")
+    set(Onnxruntime_INSTALL_LIBS
+        "${Onnxruntime_LINK_LIBS}" "${onnxruntime_SOURCE_DIR}/lib/libonnxruntime_providers_shared.so"
+        "${onnxruntime_SOURCE_DIR}/lib/libonnxruntime.so" "${onnxruntime_SOURCE_DIR}/lib/libonnxruntime.so.1")
   endif()
   if(NOT EXISTS "${Onnxruntime_LINK_LIBS}")
     message(FATAL_ERROR "ONNX Runtime native Linux library missing: ${Onnxruntime_LINK_LIBS}")
   endif()
   target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE "${Onnxruntime_LINK_LIBS}")
   target_include_directories(${CMAKE_PROJECT_NAME} SYSTEM PUBLIC "${Onnxruntime_INCLUDE_DIR}")
-  install(FILES ${Onnxruntime_INSTALL_LIBS}
-    DESTINATION "${CMAKE_INSTALL_LIBDIR}/obs-plugins/${CMAKE_PROJECT_NAME}")
+  install(FILES ${Onnxruntime_INSTALL_LIBS} DESTINATION "${CMAKE_INSTALL_LIBDIR}/obs-plugins/${CMAKE_PROJECT_NAME}")
   set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES INSTALL_RPATH "$ORIGIN/${CMAKE_PROJECT_NAME}")
 
   find_program(PATCHELF_EXE patchelf)
