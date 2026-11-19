@@ -90,8 +90,8 @@ void enumerate_gpu_devices(transcription_filter_data *gf)
 			return; // Non-NVIDIA packages legitimately omit CUDA.
 
 		cuda_preloaded = LoadLibraryExW(cuda_path.wstring().c_str(), nullptr,
-					      LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR |
-						      LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+						LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR |
+							LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
 		if (!cuda_preloaded) {
 			const DWORD error_code = GetLastError();
 			obs_log(LOG_WARNING,
@@ -135,9 +135,8 @@ void enumerate_gpu_devices(transcription_filter_data *gf)
 	// Discover the backends once; each filter can independently enumerate the
 	// same stable devices without registering extra CUDA/Vulkan entries.
 	static std::once_flag backend_discovery_once;
-	std::call_once(backend_discovery_once, [path] {
-		ggml_backend_load_all_from_path(path.string().c_str());
-	});
+	std::call_once(backend_discovery_once,
+		       [path] { ggml_backend_load_all_from_path(path.string().c_str()); });
 #endif
 
 	// Enumerate backend devices to populate list

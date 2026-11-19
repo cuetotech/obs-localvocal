@@ -19,8 +19,7 @@ inline std::string decode_html_entities(std::string_view text)
 			continue;
 		}
 		size_t end = i + 1;
-		while (end < text.size() && end - i <= 32 && text[end] != ';' &&
-		       text[end] != '&')
+		while (end < text.size() && end - i <= 32 && text[end] != ';' && text[end] != '&')
 			++end;
 		if (end == text.size() || end - i > 32 || text[end] != ';') {
 			output.push_back(text[i++]);
@@ -29,12 +28,18 @@ inline std::string decode_html_entities(std::string_view text)
 		const auto entity = text.substr(i + 1, end - i - 1);
 		uint32_t cp = 0;
 		bool valid = true;
-		if (entity == "amp") cp = '&';
-		else if (entity == "lt") cp = '<';
-		else if (entity == "gt") cp = '>';
-		else if (entity == "quot") cp = '"';
-		else if (entity == "apos") cp = '\'';
-		else if (entity == "nbsp") cp = 0xa0;
+		if (entity == "amp")
+			cp = '&';
+		else if (entity == "lt")
+			cp = '<';
+		else if (entity == "gt")
+			cp = '>';
+		else if (entity == "quot")
+			cp = '"';
+		else if (entity == "apos")
+			cp = '\'';
+		else if (entity == "nbsp")
+			cp = 0xa0;
 		else if (!entity.empty() && entity[0] == '#') {
 			size_t pos = 1;
 			uint32_t base = 10;
@@ -46,13 +51,19 @@ inline std::string decode_html_entities(std::string_view text)
 			for (; valid && pos < entity.size(); ++pos) {
 				const char c = entity[pos];
 				uint32_t digit = 16;
-				if (c >= '0' && c <= '9') digit = static_cast<uint32_t>(c - '0');
-				else if (c >= 'a' && c <= 'f') digit = static_cast<uint32_t>(c - 'a' + 10);
-				else if (c >= 'A' && c <= 'F') digit = static_cast<uint32_t>(c - 'A' + 10);
-				if (digit >= base || cp > (0x10ffffu - digit) / base) valid = false;
-				else cp = cp * base + digit;
+				if (c >= '0' && c <= '9')
+					digit = static_cast<uint32_t>(c - '0');
+				else if (c >= 'a' && c <= 'f')
+					digit = static_cast<uint32_t>(c - 'a' + 10);
+				else if (c >= 'A' && c <= 'F')
+					digit = static_cast<uint32_t>(c - 'A' + 10);
+				if (digit >= base || cp > (0x10ffffu - digit) / base)
+					valid = false;
+				else
+					cp = cp * base + digit;
 			}
-		} else valid = false;
+		} else
+			valid = false;
 		// Preserve invalid Unicode scalars and NUL instead of inserting them.
 		valid = valid && cp != 0 && cp <= 0x10ffff && !(cp >= 0xd800 && cp <= 0xdfff);
 		if (!valid) {

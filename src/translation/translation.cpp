@@ -130,35 +130,42 @@ int translate(struct translation_context &translation_ctx, const std::string &te
 			std::vector<std::string> input_tokens = {source_lang, "<s>"};
 			if (translation_ctx.add_context > 0) {
 				for (const auto &tokens : translation_ctx.last_input_tokens) {
-					input_tokens.insert(input_tokens.end(), tokens.begin(), tokens.end());
+					input_tokens.insert(input_tokens.end(), tokens.begin(),
+							    tokens.end());
 				}
 			}
 			new_input_tokens = translation_ctx.tokenizer(text);
-			input_tokens.insert(input_tokens.end(), new_input_tokens.begin(), new_input_tokens.end());
+			input_tokens.insert(input_tokens.end(), new_input_tokens.begin(),
+					    new_input_tokens.end());
 			input_tokens.push_back("</s>");
 			const std::vector<std::vector<std::string>> batch = {input_tokens};
 
 			target_prefix = {target_lang};
 			if (translation_ctx.add_context > 0) {
 				for (const auto &tokens : translation_ctx.last_translation_tokens) {
-					target_prefix.insert(target_prefix.end(), tokens.begin(), tokens.end());
+					target_prefix.insert(target_prefix.end(), tokens.begin(),
+							     tokens.end());
 				}
 			}
-			const std::vector<std::vector<std::string>> target_prefix_batch = {target_prefix};
+			const std::vector<std::vector<std::string>> target_prefix_batch = {
+				target_prefix};
 			results = translation_ctx.translator->translate_batch(
 				batch, target_prefix_batch, *translation_ctx.options);
 		} else {
 			const auto tokens = translation_ctx.tokenizer(
 				"<2" + language_codes_to_whisper[target_lang] + "> " + text);
 			const std::vector<std::vector<std::string>> batch = {tokens};
-			results = translation_ctx.translator->translate_batch(batch, {}, *translation_ctx.options);
+			results = translation_ctx.translator->translate_batch(
+				batch, {}, *translation_ctx.options);
 		}
 
 		if (results.empty())
 			throw std::runtime_error("CT2 returned no translation result");
 		std::vector<std::string> translation_tokens;
-		if (!localvocal::strip_translation_prefix(results[0].output(), target_prefix, translation_tokens))
-			throw std::runtime_error("CT2 returned a truncated or mismatched target prefix");
+		if (!localvocal::strip_translation_prefix(results[0].output(), target_prefix,
+							  translation_tokens))
+			throw std::runtime_error(
+				"CT2 returned a truncated or mismatched target prefix");
 
 		const std::string result_ = translation_ctx.detokenizer(translation_tokens);
 		result = remove_start_punctuation(result_);
@@ -167,8 +174,10 @@ int translate(struct translation_context &translation_ctx, const std::string &te
 		if (translation_ctx.input_tokenization_style == INPUT_TOKENIZAION_M2M100)
 			translation_ctx.last_input_tokens.push_back(new_input_tokens);
 		translation_ctx.last_translation_tokens.push_back(translation_tokens);
-		const size_t context_limit = translation_ctx.add_context > 0
-			? static_cast<size_t>(translation_ctx.add_context) : 0;
+		const size_t context_limit =
+			translation_ctx.add_context > 0
+				? static_cast<size_t>(translation_ctx.add_context)
+				: 0;
 		while (translation_ctx.last_input_tokens.size() > context_limit)
 			translation_ctx.last_input_tokens.pop_front();
 		while (translation_ctx.last_translation_tokens.size() > context_limit)
@@ -176,7 +185,8 @@ int translate(struct translation_context &translation_ctx, const std::string &te
 
 		// Stage timing only: this excludes ASR, sentence buffering, and rendering.
 		const double elapsed_ms = std::chrono::duration<double, std::milli>(
-			std::chrono::steady_clock::now() - start).count();
+						  std::chrono::steady_clock::now() - start)
+						  .count();
 		obs_log(LOG_INFO, "CT2 translation: %.1f ms, input_bytes=%zu, output_bytes=%zu",
 			elapsed_ms, text.size(), result.size());
 	} catch (std::exception &e) {
