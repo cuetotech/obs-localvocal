@@ -15,12 +15,15 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
           persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       - name: Apply upstream formatters
         run: |
           set -euo pipefail
           eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
           brew install --quiet obsproject/tools/clang-format@16
-          python3 -m pip install --user --break-system-packages cmakelang==0.6.13
+          python -m pip install --user cmakelang==0.6.13
           export PATH="/home/linuxbrew/.linuxbrew/opt/clang-format@16/bin:$HOME/.local/bin:$PATH"
           clang-format-16 -i src/transcription-filter.cpp src/translation/cloud-translation/google-cloud.cpp src/translation/cloud-translation/html-entities.h src/translation/translation.cpp
           cmake-format -i src/tests/CMakeLists.txt tests/upstream-reliability/CMakeLists.txt
