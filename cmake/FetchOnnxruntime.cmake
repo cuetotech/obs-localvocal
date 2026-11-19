@@ -28,7 +28,8 @@ endif()
 if(USE_PREDEFINED_ONNXRUNTIME)
   set(Onnxruntime_URL
       "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/${Onnxruntime_VERSION}/microsoft.ml.onnxruntime.${Onnxruntime_VERSION}.nupkg")
-  set(Onnxruntime_HASH "")
+  # SHA256 verified from the official signed 1.20.1 package; fail on byte drift.
+  set(Onnxruntime_HASH SHA256=9c32108e9a1c78b090a95c2a219f244dd5f067d4caf68fb0f967103f3f20839c)
 else()
   set(Onnxruntime_URL "${CUSTOM_ONNXRUNTIME_URL}")
   set(Onnxruntime_HASH "${CUSTOM_ONNXRUNTIME_HASH}")
