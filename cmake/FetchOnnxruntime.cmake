@@ -22,74 +22,113 @@ else()
   endif()
 endif()
 
+# Microsoft retains the 1.20.1 native binaries in its official NuGet package.
+# The old GitHub release download URLs currently return HTTP 404. This package
+# contains all supported desktop RIDs and the C++ header tree.
 if(USE_PREDEFINED_ONNXRUNTIME)
-  set(Onnxruntime_BASEURL "https://github.com/microsoft/onnxruntime/releases/download/v${Onnxruntime_VERSION}")
-
-  if(APPLE)
-    set(Onnxruntime_URL "${Onnxruntime_BASEURL}/onnxruntime-osx-universal2-${Onnxruntime_VERSION}.tgz")
-    set(Onnxruntime_HASH SHA256=da4349e01a7e997f5034563183c7183d069caadc1d95f499b560961787813efd)
-  elseif(MSVC)
-    set(Onnxruntime_URL "${Onnxruntime_BASEURL}/onnxruntime-win-x64-${Onnxruntime_VERSION}.zip")
-    set(OOnnxruntime_HASH SHA256=78d447051e48bd2e1e778bba378bec4ece11191c9e538cf7b2c4a4565e8f5581)
-  else()
-    if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
-      set(Onnxruntime_URL "${Onnxruntime_BASEURL}/onnxruntime-linux-aarch64-${Onnxruntime_VERSION}.tgz")
-      set(Onnxruntime_HASH SHA256=ae4fedbdc8c18d688c01306b4b50c63de3445cdf2dbd720e01a2fa3810b8106a)
-    else()
-      set(Onnxruntime_URL "${Onnxruntime_BASEURL}/onnxruntime-linux-x64-gpu-${Onnxruntime_VERSION}.tgz")
-      set(Onnxruntime_HASH SHA256=6bfb87c6ebe55367a94509b8ef062239e188dccf8d5caac8d6909b2344893bf0)
-    endif()
-  endif()
+  set(Onnxruntime_URL
+      "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/${Onnxruntime_VERSION}/microsoft.ml.onnxruntime.${Onnxruntime_VERSION}.nupkg")
+  set(Onnxruntime_HASH "")
 else()
   set(Onnxruntime_URL "${CUSTOM_ONNXRUNTIME_URL}")
   set(Onnxruntime_HASH "${CUSTOM_ONNXRUNTIME_HASH}")
 endif()
 
-FetchContent_Declare(
-  onnxruntime
-  URL ${Onnxruntime_URL}
-  URL_HASH ${Onnxruntime_HASH})
+if(Onnxruntime_HASH)
+  FetchContent_Declare(onnxruntime URL "${Onnxruntime_URL}" URL_HASH "${Onnxruntime_HASH}")
+else()
+  FetchContent_Declare(onnxruntime URL "${Onnxruntime_URL}")
+endif()
 FetchContent_MakeAvailable(onnxruntime)
 
+# Support both the legacy GitHub release archive and the native NuGet layout.
+if(EXISTS "${onnxruntime_SOURCE_DIR}/build/native/include")
+  set(Onnxruntime_IS_NUGET TRUE)
+  set(Onnxruntime_INCLUDE_DIR "${onnxruntime_SOURCE_DIR}/build/native/include")
+else()
+  set(Onnxruntime_IS_NUGET FALSE)
+  set(Onnxruntime_INCLUDE_DIR "${onnxruntime_SOURCE_DIR}/include")
+endif()
+
 if(APPLE)
-  install_library_to_bundle(${onnxruntime_SOURCE_DIR} libonnxruntime.${Onnxruntime_VERSION}.dylib BUILD_DEPENDENCY)
+  if(Onnxruntime_IS_NUGET)
+    if(CMAKE_OSX_ARCHITECTURES MATCHES "arm64" AND NOT CMAKE_OSX_ARCHITECTURES MATCHES "x86_64")
+      set(Onnxruntime_MAC_RID "osx-arm64")
+    elseif(CMAKE_OSX_ARCHITECTURES MATCHES "x86_64" AND NOT CMAKE_OSX_ARCHITECTURES MATCHES "arm64")
+      set(Onnxruntime_MAC_RID "osx-x64")
+    elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
+      set(Onnxruntime_MAC_RID "osx-arm64")
+    else()
+      set(Onnxruntime_MAC_RID "osx-x64")
+    endif()
+    set(Onnxruntime_MAC_LIBDIR "${onnxruntime_SOURCE_DIR}/runtimes/${Onnxruntime_MAC_RID}/native")
+    if(NOT EXISTS "${Onnxruntime_MAC_LIBDIR}/libonnxruntime.dylib")
+      message(FATAL_ERROR "Official NuGet package lacks ${Onnxruntime_MAC_RID}/libonnxruntime.dylib")
+    endif()
+    install_library_to_bundle("${Onnxruntime_MAC_LIBDIR}" libonnxruntime.dylib BUILD_DEPENDENCY)
+    target_include_directories(${CMAKE_PROJECT_NAME} SYSTEM PRIVATE "${Onnxruntime_INCLUDE_DIR}")
+  else()
+    install_library_to_bundle("${onnxruntime_SOURCE_DIR}" libonnxruntime.${Onnxruntime_VERSION}.dylib BUILD_DEPENDENCY)
+  endif()
   add_custom_command(
     TARGET "${CMAKE_PROJECT_NAME}"
     POST_BUILD
     COMMAND
       ${CMAKE_INSTALL_NAME_TOOL} -change "@rpath/libonnxruntime.${Onnxruntime_VERSION}.dylib"
-      "@loader_path/../Frameworks/libonnxruntime.${Onnxruntime_VERSION}.dylib" $<TARGET_FILE:${CMAKE_PROJECT_NAME}>)
+      "@loader_path/../Frameworks/$<IF:$<BOOL:${Onnxruntime_IS_NUGET}>,libonnxruntime.dylib,libonnxruntime.${Onnxruntime_VERSION}.dylib>" $<TARGET_FILE:${CMAKE_PROJECT_NAME}>)
 elseif(MSVC)
+  if(Onnxruntime_IS_NUGET)
+    set(Onnxruntime_WIN_LIBDIR "${onnxruntime_SOURCE_DIR}/runtimes/win-x64/native")
+  else()
+    set(Onnxruntime_WIN_LIBDIR "${onnxruntime_SOURCE_DIR}/lib")
+  endif()
   add_library(Ort INTERFACE)
-  set(Onnxruntime_LIB_NAMES onnxruntime;onnxruntime_providers_shared)
-  foreach(lib_name IN LISTS Onnxruntime_LIB_NAMES)
-    add_library(Ort::${lib_name} SHARED IMPORTED)
-    set_target_properties(Ort::${lib_name} PROPERTIES IMPORTED_IMPLIB ${onnxruntime_SOURCE_DIR}/lib/${lib_name}.lib)
-    set_target_properties(Ort::${lib_name} PROPERTIES IMPORTED_LOCATION ${onnxruntime_SOURCE_DIR}/lib/${lib_name}.dll)
-    set_target_properties(Ort::${lib_name} PROPERTIES INTERFACE_INCLUDE_DIRECTORIES ${onnxruntime_SOURCE_DIR}/include)
-    target_link_libraries(Ort INTERFACE Ort::${lib_name})
-    install(FILES ${onnxruntime_SOURCE_DIR}/lib/${lib_name}.dll DESTINATION "obs-plugins/64bit")
+  foreach(lib_name IN ITEMS onnxruntime onnxruntime_providers_shared)
+    if(EXISTS "${Onnxruntime_WIN_LIBDIR}/${lib_name}.dll" AND
+       EXISTS "${Onnxruntime_WIN_LIBDIR}/${lib_name}.lib")
+      add_library(Ort::${lib_name} SHARED IMPORTED)
+      set_target_properties(Ort::${lib_name} PROPERTIES
+        IMPORTED_IMPLIB "${Onnxruntime_WIN_LIBDIR}/${lib_name}.lib"
+        IMPORTED_LOCATION "${Onnxruntime_WIN_LIBDIR}/${lib_name}.dll"
+        INTERFACE_INCLUDE_DIRECTORIES "${Onnxruntime_INCLUDE_DIR}")
+      target_link_libraries(Ort INTERFACE Ort::${lib_name})
+      install(FILES "${Onnxruntime_WIN_LIBDIR}/${lib_name}.dll"
+        DESTINATION "obs-plugins/64bit")
+    elseif(lib_name STREQUAL "onnxruntime")
+      message(FATAL_ERROR "Official ONNX Runtime package lacks Windows x64 import library or DLL")
+    endif()
   endforeach()
-
   target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE Ort)
+  target_include_directories(${CMAKE_PROJECT_NAME} SYSTEM PRIVATE "${Onnxruntime_INCLUDE_DIR}")
 
 else()
-  set(Onnxruntime_LINK_LIBS "${onnxruntime_SOURCE_DIR}/lib/libonnxruntime.so.${Onnxruntime_VERSION}")
-  set(Onnxruntime_ADDITIONAL_LIBS
-      "${onnxruntime_SOURCE_DIR}/lib/libonnxruntime_providers_shared.so"
-      "${onnxruntime_SOURCE_DIR}/lib/libonnxruntime.so" "${onnxruntime_SOURCE_DIR}/lib/libonnxruntime.so.1")
-  if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
-    set(Onnxruntime_INSTALL_LIBS ${Onnxruntime_LINK_LIBS} ${Onnxruntime_ADDITIONAL_LIBS})
+  if(Onnxruntime_IS_NUGET)
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
+      set(Onnxruntime_LINUX_RID "linux-arm64")
+    else()
+      set(Onnxruntime_LINUX_RID "linux-x64")
+    endif()
+    set(Onnxruntime_LINK_LIBS
+        "${onnxruntime_SOURCE_DIR}/runtimes/${Onnxruntime_LINUX_RID}/native/libonnxruntime.so")
+    set(Onnxruntime_INSTALL_LIBS "${Onnxruntime_LINK_LIBS}")
   else()
-    set(Onnxruntime_INSTALL_LIBS ${Onnxruntime_LINK_LIBS} ${Onnxruntime_ADDITIONAL_LIBS})
+    set(Onnxruntime_LINK_LIBS "${onnxruntime_SOURCE_DIR}/lib/libonnxruntime.so.${Onnxruntime_VERSION}")
+    set(Onnxruntime_INSTALL_LIBS "${Onnxruntime_LINK_LIBS}"
+        "${onnxruntime_SOURCE_DIR}/lib/libonnxruntime_providers_shared.so"
+        "${onnxruntime_SOURCE_DIR}/lib/libonnxruntime.so"
+        "${onnxruntime_SOURCE_DIR}/lib/libonnxruntime.so.1")
   endif()
-  target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE ${Onnxruntime_LINK_LIBS})
-  target_include_directories(${CMAKE_PROJECT_NAME} SYSTEM PUBLIC "${onnxruntime_SOURCE_DIR}/include")
-  install(FILES ${Onnxruntime_INSTALL_LIBS} DESTINATION "${CMAKE_INSTALL_LIBDIR}/obs-plugins/${CMAKE_PROJECT_NAME}")
+  if(NOT EXISTS "${Onnxruntime_LINK_LIBS}")
+    message(FATAL_ERROR "ONNX Runtime native Linux library missing: ${Onnxruntime_LINK_LIBS}")
+  endif()
+  target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE "${Onnxruntime_LINK_LIBS}")
+  target_include_directories(${CMAKE_PROJECT_NAME} SYSTEM PUBLIC "${Onnxruntime_INCLUDE_DIR}")
+  install(FILES ${Onnxruntime_INSTALL_LIBS}
+    DESTINATION "${CMAKE_INSTALL_LIBDIR}/obs-plugins/${CMAKE_PROJECT_NAME}")
   set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES INSTALL_RPATH "$ORIGIN/${CMAKE_PROJECT_NAME}")
 
   find_program(PATCHELF_EXE patchelf)
-  if(PATCHELF_EXE)
+  if(PATCHELF_EXE AND NOT Onnxruntime_IS_NUGET)
     add_custom_command(
       TARGET ${CMAKE_PROJECT_NAME}
       POST_BUILD
