@@ -3,6 +3,8 @@
 #endif
 
 #include <obs-module.h>
+#include <filesystem>
+#include <system_error>
 
 #include "whisper-utils.h"
 #include "whisper-processing.h"
@@ -87,39 +89,33 @@ void update_whisper_model(struct transcription_filter_data *gf, bool force_whisp
 
 			const ModelInfo &model_info = models_info().at(new_model_path);
 
-			// Verification and any transfer run on the owned download worker, including cached files.
-			download_model_with_ui_dialog(
-				model_info,
-				[lifetime, session, new_model_path, silero_vad_model_file_str,
-				 model_info](int status, const std::string &folder) {
-					if (session->load())
-						return;
-					if (status != 0) {
-						obs_log(LOG_ERROR, "Whisper model download failed");
-						return;
-					}
-					const auto path = find_model_file_in_folder(folder);
-					if (path.empty()) {
-						obs_log(LOG_ERROR,
-							"Downloaded Whisper model file missing");
-						return;
-					}
-					download_coreml_encoder_model_if_available(
-						model_info,
-						[lifetime, session, path, new_model_path,
-						 silero_vad_model_file_str] {
-							lifetime->run(session, [&](auto &owner) {
-								owner.whisper_model_path =
-									new_model_path;
-								start_whisper_thread_with_path(
-									&owner, path,
-									silero_vad_model_file_str
-										.c_str());
-							});
-						},
-						session);
-				},
-				session);
+			// Loading an already installed model must be silent and offline.
+			// Downloads are initiated *only* through Manage Models, not by
+			// opening OBS or reopening a saved filter.
+			const std::string path = find_model_bin_file(model_info);
+			if (path.empty()) {
+				obs_log(LOG_ERROR,
+					"Whisper model '%s' is not installed. Open Filters > "
+					"Transcription > Manage Models to download it.",
+					new_model_path.c_str());
+				return;
+			}
+			const auto bin_path = std::filesystem::u8path(path);
+			std::error_code file_error;
+			if (!std::filesystem::is_regular_file(bin_path, file_error) ||
+			    std::filesystem::file_size(bin_path, file_error) == 0 ||
+			    file_error) {
+				obs_log(LOG_ERROR,
+					"Whisper model '%s' is missing or empty; reinstall it "
+					"using Manage Models.",
+					new_model_path.c_str());
+				return;
+			}
+			lifetime->run(session, [&](auto &owner) {
+				owner.whisper_model_path = new_model_path;
+				start_whisper_thread_with_path(
+					&owner, path, silero_vad_model_file_str.c_str());
+			});
 		} else {
 			// new model is external file, get file location from file property
 			if (external_model_file_path.empty()) {

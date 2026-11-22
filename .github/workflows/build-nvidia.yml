@@ -3,7 +3,7 @@ name: LocalVocal Windows NVIDIA - tested translation fixes
 on:
   workflow_dispatch:
   push:
-    branches: [build/nvidia-translation-20261023, feat/rtx4070-sermon-captions, feat/openai-responses-contextual-sermons, diagnostics/cuda-backend-loader-20261111, feat/openai-sermon-card-storage-model-20261115]
+    branches: [build/nvidia-translation-20261023, feat/rtx4070-sermon-captions, feat/openai-responses-contextual-sermons, diagnostics/cuda-backend-loader-20261111, feat/openai-sermon-card-storage-model-20261115, feat/offline-model-library-20261119]
     paths:
       - '.github/workflows/build-nvidia.yml'
       - '.github/scripts/**'
@@ -58,10 +58,33 @@ jobs:
           cache: false
           rustflags: ''
 
+      - name: Fetch and verify official ONNX Runtime 1.20.1 from NuGet
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # The legacy microsoft/onnxruntime v1.20.1 GitHub ZIP began returning
+          # HTTP 404. NuGet retains Microsoft's same-version native package.
+          $name = 'microsoft.ml.onnxruntime.1.20.1.nupkg'
+          $url = "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/1.20.1/$name"
+          $package = Join-Path $env:RUNNER_TEMP $name
+          Invoke-WebRequest -Uri $url -OutFile $package -ErrorAction Stop
+          # The flat-container .nupkg.sha512 URL is not available for this
+          # package. Verify the NuGet author/repository signature instead.
+          & dotnet nuget verify $package --all
+          if ($LASTEXITCODE -ne 0) { throw 'Official NuGet package signature verification failed' }
+          $zip = Join-Path $env:RUNNER_TEMP 'onnxruntime-1.20.1.zip'
+          Copy-Item $package $zip
+          $checksum = (Get-FileHash -Path $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          # CMake FetchContent on Windows needs the native absolute path, not file:///D:/...
+          # (the URI form was parsed as /D:/... and broke run #45).
+          $nativePath = (Resolve-Path -LiteralPath $zip).ProviderPath.Replace('\', '/')
+          "ORT_ZIP_URL=$nativePath" >> $env:GITHUB_ENV
+          "ORT_ZIP_SHA256=$checksum" >> $env:GITHUB_ENV
+          Write-Output 'Verified signed official NuGet package and pinned its SHA256 for CMake.'
+
       - name: Build Windows x64 NVIDIA
         run: |
           $env:ACCELERATION = 'nvidia'
-          ./.github/scripts/Build-Windows.ps1 -Target x64 -Configuration RelWithDebInfo
+          ./.github/scripts/Build-Windows.ps1 -Target x64 -Configuration RelWithDebInfo -ExtraCmakeArgs @("-DCUSTOM_ONNXRUNTIME_URL=$env:ORT_ZIP_URL", "-DCUSTOM_ONNXRUNTIME_HASH=SHA256=$env:ORT_ZIP_SHA256")
 
       - name: Verify Responses API typed output and usage contract
         run: |
