@@ -1,6 +1,7 @@
 #pragma once
 
 #include "language-shortlist.h"
+#include "plugin-support.h"
 #include "language_codes.h"
 #include "whisper-utils/whisper-language.h"
 
